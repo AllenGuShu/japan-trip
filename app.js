@@ -2,6 +2,7 @@
 const STORAGE_KEY = "jp-trip-journal-v3";
 const OLD_STORAGE_KEY_V2 = "jp-trip-journal-v2";
 const OLD_STORAGE_KEY_V1 = "jp-trip-data-v1";
+const GMAPS_KEY_STORAGE = "gmaps-api-key";
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
@@ -29,21 +30,15 @@ const COUNTRY_CURRENCY = [
   { country: "土耳其", flag: "🇹🇷", code: "TRY", symbol: "₺", name: "里拉", rate: 0.95 },
 ];
 const CUSTOM_COUNTRY = { country: "其他（自訂）", flag: "🌍", code: "", symbol: "", name: "當地貨幣", rate: 1 };
-
-function findCountryEntry(countryName) {
-  return COUNTRY_CURRENCY.find((c) => c.country === countryName) || null;
-}
+function findCountryEntry(countryName) { return COUNTRY_CURRENCY.find((c) => c.country === countryName) || null; }
 
 const SPOT_TAGS = ["美食", "購物", "自然", "文化", "歷史", "夜景", "親子", "秘境", "打卡"];
-
 const EXPENSE_CATS = [
-  { key: "交通", icon: "🚗" },
-  { key: "住宿", icon: "🏨" },
-  { key: "餐飲", icon: "🍜" },
-  { key: "門票", icon: "🎫" },
-  { key: "購物", icon: "🛍️" },
-  { key: "其他", icon: "🧾" },
+  { key: "交通", icon: "🚗" }, { key: "住宿", icon: "🏨" }, { key: "餐飲", icon: "🍜" },
+  { key: "門票", icon: "🎫" }, { key: "購物", icon: "🛍️" }, { key: "其他", icon: "🧾" },
 ];
+const FLIGHT_DIRECTIONS = ["去程", "回程", "轉機", "其他"];
+const TRANSPORT_TYPES = ["租車", "火車", "新幹線", "公車", "捷運/地鐵", "渡輪", "計程車/叫車", "其他"];
 
 function emptyBudget() {
   const byCategory = {};
@@ -51,34 +46,19 @@ function emptyBudget() {
   return { total: null, byCategory };
 }
 
-/* ---------- 預設清單內容（依交通方式 / 國家條件式產生） ---------- */
+/* ---------- 預設清單內容 ---------- */
 function defaultPacking(currencyName, selfDrive) {
   const groups = [
-    { category: "證件與文件", items: [
-      "護照（效期6個月以上）", "護照影本 x2", "機票 / 電子機票", "住宿訂房確認單", "海外旅平險保單",
-    ]},
-    { category: "3C用品", items: [
-      "手機＋充電線", "行動電源", "當地電源轉接頭", "上網 SIM卡 / eSIM / WiFi分享器",
-    ]},
-    { category: "藥品與盥洗", items: [
-      "個人常備藥（腸胃藥、止痛藥）", "暈車/暈機藥", "防曬乳", "隨身小包衛生紙／濕紙巾",
-    ]},
-    { category: "衣物", items: [
-      "當地氣候合適衣物", "薄外套（室內冷氣強或早晚溫差）", "帽子／太陽眼鏡", "好走的鞋",
-    ]},
-    { category: "金錢", items: [
-      `${currencyName || "當地貨幣"}現金`, "信用卡（記得開通海外交易）",
-    ]},
+    { category: "證件與文件", items: ["護照（效期6個月以上）", "護照影本 x2", "機票 / 電子機票", "住宿訂房確認單", "海外旅平險保單"] },
+    { category: "3C用品", items: ["手機＋充電線", "行動電源", "當地電源轉接頭", "上網 SIM卡 / eSIM / WiFi分享器"] },
+    { category: "藥品與盥洗", items: ["個人常備藥（腸胃藥、止痛藥）", "暈車/暈機藥", "防曬乳", "隨身小包衛生紙／濕紙巾"] },
+    { category: "衣物", items: ["當地氣候合適衣物", "薄外套（室內冷氣強或早晚溫差）", "帽子／太陽眼鏡", "好走的鞋"] },
+    { category: "金錢", items: [`${currencyName || "當地貨幣"}現金`, "信用卡（記得開通海外交易）"] },
   ];
   if (selfDrive) {
-    groups.push({ category: "自駕用品", items: [
-      "國際駕照", "台灣駕照正本", "租車預約確認單", "車用手機架", "ETC卡（若租車有配）",
-    ]});
+    groups.push({ category: "自駕用品", items: ["國際駕照", "台灣駕照正本", "租車預約確認單", "車用手機架", "ETC卡（若租車有配）"] });
   }
-  return groups.map((g) => ({
-    category: g.category,
-    items: g.items.map((text) => ({ id: uid(), text, done: false })),
-  }));
+  return groups.map((g) => ({ category: g.category, items: g.items.map((text) => ({ id: uid(), text, done: false })) }));
 }
 
 function defaultNotes(countryName, selfDrive) {
@@ -127,6 +107,9 @@ function newTrip({ title, dateRange, dayCount, countryEntry, transport }) {
     expenses: [],
     customPhrases: [],
     notes: defaultNotes(countryEntry.country, selfDrive),
+    flights: [],
+    lodging: [],
+    transportItems: [],
   };
 }
 
@@ -149,6 +132,9 @@ function migrateV2Trip(old) {
     expenses: old.expenses || [],
     customPhrases: old.customPhrases || [],
     notes: old.notes || defaultNotes("日本", true),
+    flights: old.flights || [],
+    lodging: old.lodging || [],
+    transportItems: old.transportItems || [],
   };
 }
 
@@ -160,6 +146,9 @@ function loadJournal() {
       if (parsed && Array.isArray(parsed.trips)) {
         parsed.trips.forEach((t) => {
           if (!t.budget) t.budget = emptyBudget();
+          if (!t.flights) t.flights = [];
+          if (!t.lodging) t.lodging = [];
+          if (!t.transportItems) t.transportItems = [];
           (t.spots || []).forEach((s) => { if (!s.tags) s.tags = []; });
         });
         return parsed;
@@ -167,33 +156,22 @@ function loadJournal() {
     }
   } catch (e) { /* ignore */ }
 
-  // 搬遷 v2（多趟旅遊，但無國家/貨幣/預算/標籤欄位）
   try {
     const v2raw = localStorage.getItem(OLD_STORAGE_KEY_V2);
     if (v2raw) {
       const v2 = JSON.parse(v2raw);
-      if (v2 && Array.isArray(v2.trips) && v2.trips.length) {
-        return { trips: v2.trips.map(migrateV2Trip) };
-      }
+      if (v2 && Array.isArray(v2.trips) && v2.trips.length) return { trips: v2.trips.map(migrateV2Trip) };
     }
   } catch (e) { /* ignore */ }
 
-  // 搬遷 v1（單一趟舊版資料）
   try {
     const v1raw = localStorage.getItem(OLD_STORAGE_KEY_V1);
     if (v1raw) {
       const old = JSON.parse(v1raw);
       const migrated = migrateV2Trip({
-        title: old.tripTitle,
-        dateRange: old.dateRange,
-        dayCount: (old.days || []).length,
-        exRate: old.exRate,
-        spots: old.spots,
-        days: old.days,
-        packing: old.packing,
-        expenses: old.expenses,
-        customPhrases: old.customPhrases,
-        notes: old.notes,
+        title: old.tripTitle, dateRange: old.dateRange, dayCount: (old.days || []).length,
+        exRate: old.exRate, spots: old.spots, days: old.days, packing: old.packing,
+        expenses: old.expenses, customPhrases: old.customPhrases, notes: old.notes,
       });
       return { trips: [migrated] };
     }
@@ -212,14 +190,14 @@ function currentTrip() { return JOURNAL.trips.find((t) => t.id === appState.trip
 function regenerateIds(trip) {
   trip.id = uid();
   (trip.spots || []).forEach((s) => { s.id = uid(); });
-  (trip.days || []).forEach((d) => {
-    d.id = uid();
-    (d.stops || []).forEach((st) => { st.id = uid(); });
-  });
+  (trip.days || []).forEach((d) => { d.id = uid(); (d.stops || []).forEach((st) => { st.id = uid(); }); });
   (trip.packing || []).forEach((g) => { (g.items || []).forEach((it) => { it.id = uid(); }); });
   (trip.expenses || []).forEach((e) => { e.id = uid(); });
   (trip.customPhrases || []).forEach((p) => { p.id = uid(); });
   (trip.notes || []).forEach((n) => { n.id = uid(); });
+  (trip.flights || []).forEach((f) => { f.id = uid(); });
+  (trip.lodging || []).forEach((l) => { l.id = uid(); });
+  (trip.transportItems || []).forEach((t) => { t.id = uid(); });
   return trip;
 }
 
@@ -232,6 +210,9 @@ function duplicateTrip(trip, mode) {
     copy.spots = [];
     copy.days = copy.days.map((d) => ({ id: uid(), label: d.label, date: "", stops: [] }));
     copy.expenses = [];
+    copy.flights = [];
+    copy.lodging = [];
+    copy.transportItems = [];
     copy.packing.forEach((g) => g.items.forEach((it) => { it.done = false; }));
   } else {
     copy.title = trip.title + "（複製）";
@@ -281,8 +262,83 @@ function el(html) {
 function escapeHtml(s = "") {
   return s.replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 }
-function mapUrl(query) {
-  return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(query);
+function mapUrl(query) { return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(query); }
+function mapUrlForPlace(name, placeId) {
+  if (placeId) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}&query_place_id=${encodeURIComponent(placeId)}`;
+  return mapUrl(name);
+}
+
+/* ===================== Google Places（選用） ===================== */
+function getApiKey() { return localStorage.getItem(GMAPS_KEY_STORAGE) || ""; }
+function setApiKey(key) {
+  if (key) localStorage.setItem(GMAPS_KEY_STORAGE, key);
+  else localStorage.removeItem(GMAPS_KEY_STORAGE);
+}
+
+let gmapsLoadPromise = null;
+function loadGoogleMaps(key) {
+  if (!key) return Promise.reject(new Error("no key"));
+  if (window.google && window.google.maps && window.google.maps.places) return Promise.resolve();
+  if (gmapsLoadPromise) return gmapsLoadPromise;
+  gmapsLoadPromise = new Promise((resolve, reject) => {
+    const cbName = "__gmapsReady";
+    window[cbName] = () => resolve();
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places&callback=${cbName}`;
+    script.async = true;
+    script.onerror = () => reject(new Error("Google Maps 載入失敗"));
+    document.head.appendChild(script);
+  });
+  return gmapsLoadPromise;
+}
+
+/**
+ * 為輸入框掛上 Google Places 自動完成（若沒有金鑰或載入失敗則悄悄跳過，欄位維持一般文字輸入）
+ * onPlace(place) 會拿到 { place_id, name, formatted_address, geometry }
+ */
+function tryAttachPlacesAutocomplete(input, onPlace) {
+  const key = getApiKey();
+  if (!key || !input) return;
+  loadGoogleMaps(key).then(() => {
+    if (!(window.google && window.google.maps && window.google.maps.places)) return;
+    try {
+      const ac = new window.google.maps.places.Autocomplete(input, {
+        fields: ["place_id", "name", "formatted_address", "geometry"],
+      });
+      ac.addListener("place_changed", () => {
+        const place = ac.getPlace();
+        if (place && place.place_id) onPlace(place);
+      });
+    } catch (e) { /* 靜默失敗，維持一般輸入 */ }
+  }).catch(() => { /* 靜默失敗 */ });
+}
+
+function openGlobalSettings() {
+  const key = getApiKey();
+  openModal(`
+    <h3>🔑 地點搜尋設定</h3>
+    <p style="font-size:12.5px;color:var(--ink-soft);line-height:1.6;margin-top:-6px;">
+      填入 Google Maps API 金鑰後，新增景點/行程點/住宿時可以直接搜尋真實地標，自動帶入正確地址與地圖連結。
+      沒有金鑰也完全不影響使用，只是要自己手動輸入地名。金鑰只會存在你這台裝置的瀏覽器裡。
+    </p>
+    <div class="field"><label>Google Maps API 金鑰</label><input id="f-key" value="${escapeHtml(key)}" placeholder="貼上你的 API 金鑰" /></div>
+    <div class="modal-actions">
+      <button class="btn btn--ghost" data-cancel>關閉</button>
+      <button class="btn btn--danger" data-clear>清除金鑰</button>
+      <button class="btn btn--primary" data-save>儲存</button>
+    </div>
+  `, (root) => {
+    root.querySelector("[data-save]").addEventListener("click", () => {
+      const v = root.querySelector("#f-key").value.trim();
+      setApiKey(v);
+      if (v) loadGoogleMaps(v).catch(() => {});
+      closeModal();
+    });
+    root.querySelector("[data-clear]").addEventListener("click", () => {
+      setApiKey("");
+      closeModal();
+    });
+  });
 }
 
 /* ===================== 畫面切換（首頁 / 旅遊內頁） ===================== */
@@ -305,15 +361,18 @@ function openTrip(id) {
   spotTagFilter = "all";
   phraseFilter = "全部";
   currentDayIdx = 0;
+  itineraryMode = "daily";
+  logisticsSubTab = "flights";
   switchScreen("trip");
   switchView("spots");
   renderTripHeader();
   renderSpots();
-  renderDays();
+  renderDaysView();
   renderPacking();
   renderExpenses();
   renderPhrases();
   renderNotes();
+  renderLogistics();
   renderSettings();
 }
 
@@ -471,11 +530,7 @@ function openTripForm() {
       const countryVal = root.querySelector("#f-country").value;
       let countryEntry;
       if (countryVal === "__custom") {
-        countryEntry = {
-          ...CUSTOM_COUNTRY,
-          code: root.querySelector("#f-cur-code").value.trim() || "",
-          symbol: root.querySelector("#f-cur-symbol").value.trim() || "",
-        };
+        countryEntry = { ...CUSTOM_COUNTRY, code: root.querySelector("#f-cur-code").value.trim() || "", symbol: root.querySelector("#f-cur-symbol").value.trim() || "" };
       } else {
         countryEntry = findCountryEntry(countryVal) || CUSTOM_COUNTRY;
       }
@@ -584,11 +639,11 @@ function renderSpots() {
         <div class="spot-card__badge ${s.priority === "必去" ? "must" : "maybe"}">${s.priority}</div>
         <div class="spot-card__body">
           <p class="spot-card__name">${escapeHtml(s.name)}</p>
-          <p class="spot-card__meta">${escapeHtml(s.day || "尚未排定")}</p>
+          <p class="spot-card__meta">${escapeHtml(s.day || "尚未排定")}${s.address ? " · " + escapeHtml(s.address) : ""}</p>
           ${tagPills ? `<div class="tag-pill-row">${tagPills}</div>` : ""}
           ${s.note ? `<p class="spot-card__note">${escapeHtml(s.note)}</p>` : ""}
           <div class="spot-card__actions">
-            <a class="map-link" target="_blank" rel="noopener" href="${mapUrl(s.name)}">在地圖開啟 ↗</a>
+            <a class="map-link" target="_blank" rel="noopener" href="${mapUrlForPlace(s.name, s.placeId)}">在地圖開啟 ↗</a>
             <button class="btn btn--danger" data-del>刪除</button>
           </div>
         </div>
@@ -605,12 +660,15 @@ function renderSpots() {
 function openSpotForm() {
   const trip = currentTrip();
   const dayOpts = trip.days.map((d) => `<option value="${d.label}">${d.label}</option>`).join("");
-  const tagChecks = SPOT_TAGS.map((t) => `
-    <label class="tag-check"><input type="checkbox" value="${t}" /><span>${t}</span></label>
-  `).join("");
+  const tagChecks = SPOT_TAGS.map((t) => `<label class="tag-check"><input type="checkbox" value="${t}" /><span>${t}</span></label>`).join("");
+  let placeData = null;
   openModal(`
     <h3>新增景點</h3>
-    <div class="field"><label>名稱</label><input id="f-name" placeholder="例如：白川鄉合掌村" /></div>
+    <div class="field">
+      <label>名稱</label>
+      <input id="f-name" placeholder="例如：白川鄉合掌村" autocomplete="off" />
+      <p class="field-hint" id="place-hint"></p>
+    </div>
     <div class="field"><label>優先度</label>
       <div class="radio-row">
         <label><input type="radio" name="pri" value="必去" checked /><span>必去</span></label>
@@ -627,8 +685,17 @@ function openSpotForm() {
       <button class="btn btn--primary" data-save>儲存</button>
     </div>
   `, (root) => {
+    const nameInput = root.querySelector("#f-name");
+    if (getApiKey()) {
+      root.querySelector("#place-hint").textContent = "輸入關鍵字可搜尋真實地標";
+      tryAttachPlacesAutocomplete(nameInput, (place) => {
+        placeData = { placeId: place.place_id, address: place.formatted_address || "" };
+        nameInput.value = place.name || nameInput.value;
+        root.querySelector("#place-hint").textContent = "✓ 已鎖定地標：" + (place.formatted_address || "");
+      });
+    }
     root.querySelector("[data-save]").addEventListener("click", () => {
-      const name = root.querySelector("#f-name").value.trim();
+      const name = nameInput.value.trim();
       if (!name) return;
       const tags = $all('.tag-check input[type="checkbox"]:checked', root).map((cb) => cb.value);
       trip.spots.push({
@@ -638,24 +705,45 @@ function openSpotForm() {
         day: root.querySelector("#f-day").value,
         tags,
         note: root.querySelector("#f-note").value.trim(),
+        placeId: placeData?.placeId || null,
+        address: placeData?.address || "",
       });
       saveJournal(); renderSpots(); closeModal();
     });
   });
 }
 
-/* ===================== 每日行程（Road timeline + 拖曳排序）===================== */
+/* ===================== 每日行程（Road timeline + 拖曳排序 + 完整行程表）===================== */
 let currentDayIdx = 0;
 let daySortableInstance = null;
+let itineraryMode = "daily"; // "daily" | "full"
 
-function renderDays() {
+function renderDaysView() {
+  const modeBar = $("#itineraryModeBar");
+  modeBar.innerHTML = "";
+  [["daily", "單日檢視"], ["full", "整趟總覽"]].forEach(([mode, label]) => {
+    const chip = el(`<button class="chip ${itineraryMode===mode?"active":""}">${label}</button>`);
+    chip.addEventListener("click", () => { itineraryMode = mode; renderDaysView(); });
+    modeBar.appendChild(chip);
+  });
+
+  if (itineraryMode === "daily") {
+    $("#dayTabs").style.display = "";
+    renderSingleDay();
+  } else {
+    $("#dayTabs").style.display = "none";
+    renderFullItinerary();
+  }
+}
+
+function renderSingleDay() {
   const trip = currentTrip();
   if (!trip) return;
   const tabWrap = $("#dayTabs");
   tabWrap.innerHTML = "";
   trip.days.forEach((d, i) => {
     const btn = el(`<button class="day-tab ${i===currentDayIdx?"active":""}">${escapeHtml(d.label)}</button>`);
-    btn.addEventListener("click", () => { currentDayIdx = i; renderDays(); });
+    btn.addEventListener("click", () => { currentDayIdx = i; renderSingleDay(); });
     tabWrap.appendChild(btn);
   });
 
@@ -671,7 +759,7 @@ function renderDays() {
       <input id="dayDate" value="${escapeHtml(day.date)}" placeholder="8/29 (六)" />
     </div>
   `);
-  editRow.querySelector("#dayLabel").addEventListener("change", (e) => { day.label = e.target.value || day.label; saveJournal(); renderDays(); });
+  editRow.querySelector("#dayLabel").addEventListener("change", (e) => { day.label = e.target.value || day.label; saveJournal(); renderSingleDay(); });
   editRow.querySelector("#dayDate").addEventListener("change", (e) => { day.date = e.target.value; saveJournal(); });
   road.appendChild(editRow);
 
@@ -692,9 +780,10 @@ function renderDays() {
               ${stop.time ? `<span class="stop-time">${escapeHtml(stop.time)}</span>` : ""}
             </div>
             <p class="stop-name">${escapeHtml(stop.name)}</p>
+            ${stop.address ? `<p class="stop-note">${escapeHtml(stop.address)}</p>` : ""}
             ${stop.note ? `<p class="stop-note">${escapeHtml(stop.note)}</p>` : ""}
             <div class="spot-card__actions" style="margin-top:8px;">
-              <a class="map-link" target="_blank" rel="noopener" href="${mapUrl(stop.name)}">在地圖開啟 ↗</a>
+              <a class="map-link" target="_blank" rel="noopener" href="${mapUrlForPlace(stop.name, stop.placeId)}">在地圖開啟 ↗</a>
               <button class="btn btn--danger" data-del>刪除</button>
             </div>
           </div>
@@ -702,7 +791,7 @@ function renderDays() {
       `);
       card.querySelector("[data-del]").addEventListener("click", () => {
         day.stops = day.stops.filter((x) => x.id !== stop.id);
-        saveJournal(); renderDays();
+        saveJournal(); renderSingleDay();
       });
       roadInner.appendChild(card);
     });
@@ -722,6 +811,53 @@ function renderDays() {
   road.appendChild(addBtn);
 }
 
+function renderFullItinerary() {
+  const trip = currentTrip();
+  if (!trip) return;
+  const road = $("#dayRoad");
+  if (daySortableInstance) { daySortableInstance.destroy(); daySortableInstance = null; }
+  road.innerHTML = "";
+
+  const outbound = trip.flights.find((f) => f.direction === "去程");
+  const inbound = trip.flights.find((f) => f.direction === "回程");
+
+  if (outbound) road.appendChild(el(`<div class="card full-flight-card">✈️ <b>去程</b>　${escapeHtml(outbound.airline||"")} ${escapeHtml(outbound.flightNo||"")}　${escapeHtml(outbound.depAirport||"")} ${escapeHtml(outbound.depTime||"")} → ${escapeHtml(outbound.arrAirport||"")} ${escapeHtml(outbound.arrTime||"")}</div>`));
+
+  trip.days.forEach((day) => {
+    const section = el(`<div class="full-day-section"></div>`);
+    section.appendChild(el(`<div class="full-day-header">${escapeHtml(day.label)}${day.date ? " · " + escapeHtml(day.date) : ""}</div>`));
+    if (!day.stops.length) {
+      section.appendChild(el(`<div class="empty-hint" style="padding:14px;">（尚未安排）</div>`));
+    } else {
+      const inner = el(`<div class="road"></div>`);
+      day.stops.forEach((stop, idx) => {
+        if (idx > 0 && stop.drive) inner.appendChild(el(`<div class="drive-chip">🚗 車程約 ${escapeHtml(stop.drive)}</div>`));
+        inner.appendChild(el(`
+          <div class="road-stop">
+            <div class="card">
+              ${stop.time ? `<span class="stop-time">${escapeHtml(stop.time)}</span>` : ""}
+              <p class="stop-name">${escapeHtml(stop.name)}</p>
+              ${stop.note ? `<p class="stop-note">${escapeHtml(stop.note)}</p>` : ""}
+            </div>
+          </div>
+        `));
+      });
+      section.appendChild(inner);
+    }
+    road.appendChild(section);
+  });
+
+  if (inbound) road.appendChild(el(`<div class="card full-flight-card">✈️ <b>回程</b>　${escapeHtml(inbound.airline||"")} ${escapeHtml(inbound.flightNo||"")}　${escapeHtml(inbound.depAirport||"")} ${escapeHtml(inbound.depTime||"")} → ${escapeHtml(inbound.arrAirport||"")} ${escapeHtml(inbound.arrTime||"")}</div>`));
+
+  if (trip.lodging.length) {
+    const lodgeCard = el(`<div class="card"><p style="font-weight:700;font-size:13px;margin:0 0 8px;">🏨 住宿一覽</p></div>`);
+    trip.lodging.forEach((l) => {
+      lodgeCard.appendChild(el(`<p style="font-size:12.5px;margin:4px 0;color:var(--ink-soft);">${escapeHtml(l.name)}${l.checkin ? `　${escapeHtml(l.checkin)} → ${escapeHtml(l.checkout||"")}` : ""}</p>`));
+    });
+    road.appendChild(lodgeCard);
+  }
+}
+
 function syncStopOrderFromDOM(day, container) {
   const ids = $all(".road-stop", container).map((n) => n.dataset.stopId);
   const map = new Map(day.stops.map((s) => [s.id, s]));
@@ -729,15 +865,20 @@ function syncStopOrderFromDOM(day, container) {
   if (reordered.length === day.stops.length) {
     day.stops = reordered;
     saveJournal();
-    renderDays();
+    renderSingleDay();
   }
 }
 
 function openStopForm(day) {
+  let placeData = null;
   openModal(`
     <h3>新增行程點 — ${escapeHtml(day.label)}</h3>
     <div class="field"><label>時間（選填，僅顯示用）</label><input id="f-time" placeholder="例如 09:30" /></div>
-    <div class="field"><label>地點名稱</label><input id="f-name" placeholder="例如：新穗高纜車" /></div>
+    <div class="field">
+      <label>地點名稱</label>
+      <input id="f-name" placeholder="例如：新穗高纜車" autocomplete="off" />
+      <p class="field-hint" id="place-hint"></p>
+    </div>
     <div class="field"><label>與前一站的車程（選填）</label><input id="f-drive" placeholder="例如 45分" /></div>
     <div class="field"><label>備註</label><textarea id="f-note" placeholder="停留時間、注意事項..."></textarea></div>
     <div class="modal-actions">
@@ -745,8 +886,17 @@ function openStopForm(day) {
       <button class="btn btn--primary" data-save>儲存</button>
     </div>
   `, (root) => {
+    const nameInput = root.querySelector("#f-name");
+    if (getApiKey()) {
+      root.querySelector("#place-hint").textContent = "輸入關鍵字可搜尋真實地標";
+      tryAttachPlacesAutocomplete(nameInput, (place) => {
+        placeData = { placeId: place.place_id, address: place.formatted_address || "" };
+        nameInput.value = place.name || nameInput.value;
+        root.querySelector("#place-hint").textContent = "✓ 已鎖定地標：" + (place.formatted_address || "");
+      });
+    }
     root.querySelector("[data-save]").addEventListener("click", () => {
-      const name = root.querySelector("#f-name").value.trim();
+      const name = nameInput.value.trim();
       if (!name) return;
       day.stops.push({
         id: uid(),
@@ -754,8 +904,10 @@ function openStopForm(day) {
         name,
         drive: root.querySelector("#f-drive").value.trim(),
         note: root.querySelector("#f-note").value.trim(),
+        placeId: placeData?.placeId || null,
+        address: placeData?.address || "",
       });
-      saveJournal(); renderDays(); closeModal();
+      saveJournal(); renderDaysView(); closeModal();
     });
   });
 }
@@ -814,9 +966,7 @@ function openPackingForm() {
       let catVal = root.querySelector("#f-cat").value;
       if (catVal === "__new") {
         catVal = root.querySelector("#f-newcat").value.trim() || "其他";
-        if (!trip.packing.find((g) => g.category === catVal)) {
-          trip.packing.push({ category: catVal, items: [] });
-        }
+        if (!trip.packing.find((g) => g.category === catVal)) trip.packing.push({ category: catVal, items: [] });
       }
       const group = trip.packing.find((g) => g.category === catVal);
       group.items.push({ id: uid(), text, done: false });
@@ -854,7 +1004,6 @@ function renderExpenses() {
   $("#totalJPY").textContent = symbol + total.toLocaleString();
   $("#totalTWD").textContent = "NT$" + Math.round(total * trip.exRate).toLocaleString();
 
-  // 預算區塊
   const budgetWrap = $("#budgetSection");
   budgetWrap.innerHTML = "";
   const budget = trip.budget || emptyBudget();
@@ -866,11 +1015,8 @@ function renderExpenses() {
     const spent = trip.expenses.filter((e) => e.category === c.key).reduce((s, e) => s + Number(e.amount || 0), 0);
     budgetHtml += budgetBarHtml(spent, limit, `${c.icon} ${c.key}`);
   });
-  if (budgetHtml) {
-    budgetWrap.appendChild(el(`<div class="card budget-card">${budgetHtml}</div>`));
-  } else {
-    budgetWrap.appendChild(el(`<div class="empty-hint">還沒有設定預算，可以到 ⚙️ 設定頁設定總預算或分類預算，這裡會顯示花費進度。</div>`));
-  }
+  if (budgetHtml) budgetWrap.appendChild(el(`<div class="card budget-card">${budgetHtml}</div>`));
+  else budgetWrap.appendChild(el(`<div class="empty-hint">還沒有設定預算，可以到 ⚙️ 設定頁設定總預算或分類預算，這裡會顯示花費進度。</div>`));
 
   const byCat = $("#expenseByCategory");
   byCat.innerHTML = "";
@@ -1016,11 +1162,7 @@ function openPhraseForm() {
     root.querySelector("[data-save]").addEventListener("click", () => {
       const jp = root.querySelector("#f-jp").value.trim();
       if (!jp) return;
-      trip.customPhrases.push({
-        id: uid(), cat: "我的例句",
-        jp, reading: root.querySelector("#f-reading").value.trim(),
-        zh: root.querySelector("#f-zh").value.trim(),
-      });
+      trip.customPhrases.push({ id: uid(), cat: "我的例句", jp, reading: root.querySelector("#f-reading").value.trim(), zh: root.querySelector("#f-zh").value.trim() });
       saveJournal(); renderPhrases(); closeModal();
     });
   });
@@ -1062,6 +1204,224 @@ function openNoteForm() {
       if (!text) return;
       trip.notes.push({ id: uid(), icon: "📌", text });
       saveJournal(); renderNotes(); closeModal();
+    });
+  });
+}
+
+/* ===================== 交通住宿（航班／住宿／其他交通） ===================== */
+let logisticsSubTab = "flights";
+function renderLogistics() {
+  const trip = currentTrip();
+  if (!trip) return;
+  const subTabs = $("#logisticsSubTabs");
+  subTabs.innerHTML = "";
+  [["flights","✈️ 航班"], ["lodging","🏨 住宿"], ["transport","🚌 其他交通"]].forEach(([key,label]) => {
+    const btn = el(`<button class="day-tab ${logisticsSubTab===key?"active":""}">${label}</button>`);
+    btn.addEventListener("click", () => { logisticsSubTab = key; renderLogistics(); });
+    subTabs.appendChild(btn);
+  });
+
+  const content = $("#logisticsContent");
+  content.innerHTML = "";
+
+  if (logisticsSubTab === "flights") {
+    if (!trip.flights.length) content.appendChild(el(`<div class="empty-hint">還沒有航班資訊，點下方新增去程／回程航班。</div>`));
+    trip.flights.forEach((f) => {
+      const card = el(`
+        <div class="card logistics-card">
+          <div class="logistics-card__head"><span class="logistics-tag">${escapeHtml(f.direction)}</span><span>${escapeHtml(f.airline||"")} ${escapeHtml(f.flightNo||"")}</span></div>
+          <p class="logistics-route">${escapeHtml(f.depAirport||"?")} <span class="logistics-time">${escapeHtml(f.depTime||"")}</span> → ${escapeHtml(f.arrAirport||"?")} <span class="logistics-time">${escapeHtml(f.arrTime||"")}</span></p>
+          ${f.bookingCode ? `<p class="logistics-meta">訂位代碼：${escapeHtml(f.bookingCode)}</p>` : ""}
+          ${f.note ? `<p class="logistics-meta">${escapeHtml(f.note)}</p>` : ""}
+          <button class="btn btn--danger" data-del>刪除</button>
+        </div>
+      `);
+      card.querySelector("[data-del]").addEventListener("click", () => { trip.flights = trip.flights.filter((x)=>x.id!==f.id); saveJournal(); renderLogistics(); });
+      content.appendChild(card);
+    });
+    content.appendChild(el(`<button class="btn btn--ghost" id="addFlightBtn">＋ 新增航班</button>`));
+    content.querySelector("#addFlightBtn").addEventListener("click", openFlightForm);
+  }
+
+  if (logisticsSubTab === "lodging") {
+    if (!trip.lodging.length) content.appendChild(el(`<div class="empty-hint">還沒有住宿資訊，點下方新增飯店/民宿。</div>`));
+    trip.lodging.forEach((l) => {
+      const card = el(`
+        <div class="card logistics-card">
+          <p class="logistics-route" style="font-weight:700;">${escapeHtml(l.name)}</p>
+          ${l.address ? `<p class="logistics-meta">${escapeHtml(l.address)}</p>` : ""}
+          ${l.checkin || l.checkout ? `<p class="logistics-meta">📅 ${escapeHtml(l.checkin||"")} → ${escapeHtml(l.checkout||"")}</p>` : ""}
+          ${l.bookingCode ? `<p class="logistics-meta">訂房代碼：${escapeHtml(l.bookingCode)}</p>` : ""}
+          ${l.phone ? `<p class="logistics-meta">☎ ${escapeHtml(l.phone)}</p>` : ""}
+          ${l.note ? `<p class="logistics-meta">${escapeHtml(l.note)}</p>` : ""}
+          <div class="spot-card__actions" style="margin-top:6px;">
+            <a class="map-link" target="_blank" rel="noopener" href="${mapUrlForPlace(l.name, l.placeId)}">在地圖開啟 ↗</a>
+            <button class="btn btn--danger" data-del>刪除</button>
+          </div>
+        </div>
+      `);
+      card.querySelector("[data-del]").addEventListener("click", () => { trip.lodging = trip.lodging.filter((x)=>x.id!==l.id); saveJournal(); renderLogistics(); });
+      content.appendChild(card);
+    });
+    content.appendChild(el(`<button class="btn btn--ghost" id="addLodgingBtn">＋ 新增住宿</button>`));
+    content.querySelector("#addLodgingBtn").addEventListener("click", openLodgingForm);
+  }
+
+  if (logisticsSubTab === "transport") {
+    if (!trip.transportItems.length) content.appendChild(el(`<div class="empty-hint">還沒有其他交通資訊，例如租車、火車、新幹線、公車等都可以加在這裡。</div>`));
+    trip.transportItems.forEach((t) => {
+      const card = el(`
+        <div class="card logistics-card">
+          <div class="logistics-card__head"><span class="logistics-tag">${escapeHtml(t.type)}</span><span>${escapeHtml(t.title||"")}</span></div>
+          ${t.from || t.to ? `<p class="logistics-route">${escapeHtml(t.from||"?")} <span class="logistics-time">${escapeHtml(t.depTime||"")}</span> → ${escapeHtml(t.to||"?")} <span class="logistics-time">${escapeHtml(t.arrTime||"")}</span></p>` : ""}
+          ${t.bookingCode ? `<p class="logistics-meta">確認碼：${escapeHtml(t.bookingCode)}</p>` : ""}
+          ${t.note ? `<p class="logistics-meta">${escapeHtml(t.note)}</p>` : ""}
+          <button class="btn btn--danger" data-del>刪除</button>
+        </div>
+      `);
+      card.querySelector("[data-del]").addEventListener("click", () => { trip.transportItems = trip.transportItems.filter((x)=>x.id!==t.id); saveJournal(); renderLogistics(); });
+      content.appendChild(card);
+    });
+    content.appendChild(el(`<button class="btn btn--ghost" id="addTransportBtn">＋ 新增交通</button>`));
+    content.querySelector("#addTransportBtn").addEventListener("click", openTransportForm);
+  }
+}
+
+function openFlightForm() {
+  const trip = currentTrip();
+  const dirOpts = FLIGHT_DIRECTIONS.map((d) => `<option value="${d}">${d}</option>`).join("");
+  openModal(`
+    <h3>新增航班</h3>
+    <div class="field"><label>類型</label><select id="f-dir">${dirOpts}</select></div>
+    <div class="field"><label>航空公司</label><input id="f-airline" placeholder="例如：長榮航空" /></div>
+    <div class="field"><label>航班編號</label><input id="f-no" placeholder="例如：BR198" /></div>
+    <div class="settings-row">
+      <div class="field"><label>出發機場</label><input id="f-dep-ap" placeholder="TPE" /></div>
+      <div class="field"><label>出發時間</label><input id="f-dep-time" placeholder="8/29 07:20" /></div>
+    </div>
+    <div class="settings-row">
+      <div class="field"><label>抵達機場</label><input id="f-arr-ap" placeholder="NRT" /></div>
+      <div class="field"><label>抵達時間</label><input id="f-arr-time" placeholder="8/29 11:10" /></div>
+    </div>
+    <div class="field"><label>訂位代碼（選填）</label><input id="f-code" placeholder="PNR" /></div>
+    <div class="field"><label>備註</label><textarea id="f-note" placeholder="選填"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn--ghost" data-cancel>取消</button>
+      <button class="btn btn--primary" data-save>儲存</button>
+    </div>
+  `, (root) => {
+    root.querySelector("[data-save]").addEventListener("click", () => {
+      trip.flights.push({
+        id: uid(),
+        direction: root.querySelector("#f-dir").value,
+        airline: root.querySelector("#f-airline").value.trim(),
+        flightNo: root.querySelector("#f-no").value.trim(),
+        depAirport: root.querySelector("#f-dep-ap").value.trim(),
+        depTime: root.querySelector("#f-dep-time").value.trim(),
+        arrAirport: root.querySelector("#f-arr-ap").value.trim(),
+        arrTime: root.querySelector("#f-arr-time").value.trim(),
+        bookingCode: root.querySelector("#f-code").value.trim(),
+        note: root.querySelector("#f-note").value.trim(),
+      });
+      saveJournal(); renderLogistics(); closeModal();
+    });
+  });
+}
+
+function openLodgingForm() {
+  const trip = currentTrip();
+  let placeData = null;
+  openModal(`
+    <h3>新增住宿</h3>
+    <div class="field">
+      <label>名稱</label>
+      <input id="f-name" placeholder="例如：大阪希爾頓飯店" autocomplete="off" />
+      <p class="field-hint" id="place-hint"></p>
+    </div>
+    <div class="field"><label>地址（選填，若用搜尋會自動帶入）</label><input id="f-addr" placeholder="地址" /></div>
+    <div class="settings-row">
+      <div class="field"><label>入住日期</label><input id="f-in" placeholder="8/29" /></div>
+      <div class="field"><label>退房日期</label><input id="f-out" placeholder="8/31" /></div>
+    </div>
+    <div class="field"><label>訂房代碼（選填）</label><input id="f-code" placeholder="訂房確認碼" /></div>
+    <div class="field"><label>電話（選填）</label><input id="f-phone" placeholder="選填" /></div>
+    <div class="field"><label>備註</label><textarea id="f-note" placeholder="選填"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn--ghost" data-cancel>取消</button>
+      <button class="btn btn--primary" data-save>儲存</button>
+    </div>
+  `, (root) => {
+    const nameInput = root.querySelector("#f-name");
+    const addrInput = root.querySelector("#f-addr");
+    if (getApiKey()) {
+      root.querySelector("#place-hint").textContent = "輸入關鍵字可搜尋真實地標";
+      tryAttachPlacesAutocomplete(nameInput, (place) => {
+        placeData = { placeId: place.place_id, address: place.formatted_address || "" };
+        nameInput.value = place.name || nameInput.value;
+        addrInput.value = place.formatted_address || addrInput.value;
+        root.querySelector("#place-hint").textContent = "✓ 已鎖定地標";
+      });
+    }
+    root.querySelector("[data-save]").addEventListener("click", () => {
+      const name = nameInput.value.trim();
+      if (!name) return;
+      trip.lodging.push({
+        id: uid(),
+        name,
+        address: addrInput.value.trim() || placeData?.address || "",
+        placeId: placeData?.placeId || null,
+        checkin: root.querySelector("#f-in").value.trim(),
+        checkout: root.querySelector("#f-out").value.trim(),
+        bookingCode: root.querySelector("#f-code").value.trim(),
+        phone: root.querySelector("#f-phone").value.trim(),
+        note: root.querySelector("#f-note").value.trim(),
+      });
+      saveJournal(); renderLogistics(); closeModal();
+    });
+  });
+}
+
+function openTransportForm() {
+  const trip = currentTrip();
+  const typeOpts = TRANSPORT_TYPES.map((t) => `<option value="${t}">${t}</option>`).join("");
+  openModal(`
+    <h3>新增交通資訊</h3>
+    <div class="field"><label>類型</label><select id="f-type">${typeOpts}</select></div>
+    <div class="field"><label>名稱／班次（選填）</label><input id="f-title" placeholder="例如：Nagoya Rent-a-Car / 新幹線 のぞみ 123 號" /></div>
+    <div class="settings-row">
+      <div class="field"><label>出發地</label><input id="f-from" placeholder="例如：名古屋站" autocomplete="off" /></div>
+      <div class="field"><label>出發時間</label><input id="f-dep-time" placeholder="09:00" /></div>
+    </div>
+    <div class="settings-row">
+      <div class="field"><label>抵達地</label><input id="f-to" placeholder="例如：高山站" autocomplete="off" /></div>
+      <div class="field"><label>抵達時間</label><input id="f-arr-time" placeholder="11:30" /></div>
+    </div>
+    <div class="field"><label>確認碼（選填）</label><input id="f-code" placeholder="訂位/租車確認碼" /></div>
+    <div class="field"><label>備註</label><textarea id="f-note" placeholder="選填"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn--ghost" data-cancel>取消</button>
+      <button class="btn btn--primary" data-save>儲存</button>
+    </div>
+  `, (root) => {
+    const fromInput = root.querySelector("#f-from");
+    const toInput = root.querySelector("#f-to");
+    if (getApiKey()) {
+      tryAttachPlacesAutocomplete(fromInput, (place) => { fromInput.value = place.name || place.formatted_address || fromInput.value; });
+      tryAttachPlacesAutocomplete(toInput, (place) => { toInput.value = place.name || place.formatted_address || toInput.value; });
+    }
+    root.querySelector("[data-save]").addEventListener("click", () => {
+      trip.transportItems.push({
+        id: uid(),
+        type: root.querySelector("#f-type").value,
+        title: root.querySelector("#f-title").value.trim(),
+        from: fromInput.value.trim(),
+        to: toInput.value.trim(),
+        depTime: root.querySelector("#f-dep-time").value.trim(),
+        arrTime: root.querySelector("#f-arr-time").value.trim(),
+        bookingCode: root.querySelector("#f-code").value.trim(),
+        note: root.querySelector("#f-note").value.trim(),
+      });
+      saveJournal(); renderLogistics(); closeModal();
     });
   });
 }
@@ -1133,7 +1493,7 @@ function renderSettings() {
     t.dayCount = t.days.length;
     saveJournal();
     renderSettings();
-    renderDays();
+    renderDaysView();
     renderTripHeader();
   });
 
@@ -1145,18 +1505,10 @@ function renderSettings() {
     if (countryVal === "__custom") {
       t.country = "其他（自訂）";
       t.flag = "🌍";
-      t.currency = {
-        code: form.querySelector("#s-cur-code").value.trim(),
-        symbol: form.querySelector("#s-cur-symbol").value.trim(),
-        name: t.currency.name || "當地貨幣",
-      };
+      t.currency = { code: form.querySelector("#s-cur-code").value.trim(), symbol: form.querySelector("#s-cur-symbol").value.trim(), name: t.currency.name || "當地貨幣" };
     } else {
       const entry = findCountryEntry(countryVal);
-      if (entry) {
-        t.country = entry.country;
-        t.flag = entry.flag;
-        t.currency = { code: entry.code, symbol: entry.symbol, name: entry.name };
-      }
+      if (entry) { t.country = entry.country; t.flag = entry.flag; t.currency = { code: entry.code, symbol: entry.symbol, name: entry.name }; }
     }
     t.transport = form.querySelector("#s-transport").value;
 
@@ -1218,6 +1570,7 @@ function init() {
   $("#openSettings").addEventListener("click", () => switchView("settings"));
   $("#fetchRateBtn").addEventListener("click", fetchLiveRate);
   $("#importTripBtn").addEventListener("click", importTripFile);
+  $("#openGlobalSettings").addEventListener("click", openGlobalSettings);
   $("#deleteTripBtn").addEventListener("click", () => {
     const trip = currentTrip();
     if (!trip) return;
@@ -1227,6 +1580,8 @@ function init() {
       goHome();
     }
   });
+
+  if (getApiKey()) loadGoogleMaps(getApiKey()).catch(() => {});
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {

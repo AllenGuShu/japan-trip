@@ -23,7 +23,10 @@
   <header class="route-header">
     <div class="route-header__top">
       <span class="route-badge">📖 JOURNAL</span>
-      <span id="tripCount" class="countdown">0 趟旅程</span>
+      <div class="header-right">
+        <span id="tripCount" class="countdown">0 趟旅程</span>
+        <button id="openGlobalSettings" class="icon-btn" title="地點搜尋設定">🔑</button>
+      </div>
     </div>
     <h1 class="route-title">旅遊紀錄手冊</h1>
     <div class="route-sub"><span>每一趟旅程都留一份路線紀錄</span></div>
@@ -74,8 +77,18 @@
       <div class="view-head">
         <h2>每日行程</h2>
       </div>
+      <div class="filter-row" id="itineraryModeBar"></div>
       <div class="day-tabs" id="dayTabs"></div>
       <div id="dayRoad" class="road"></div>
+    </section>
+
+    <!-- 交通住宿 -->
+    <section id="view-logistics" class="view">
+      <div class="view-head">
+        <h2>交通住宿</h2>
+      </div>
+      <div class="day-tabs" id="logisticsSubTabs"></div>
+      <div id="logisticsContent" class="stack"></div>
     </section>
 
     <!-- 準備清單 -->
@@ -152,6 +165,7 @@
     <button class="tabbar__btn" data-view="expenses"><span class="ico">💰</span><span>記帳</span></button>
     <button class="tabbar__btn" data-view="phrases"><span class="ico">💬</span><span>會話</span></button>
     <button class="tabbar__btn" data-view="notes"><span class="ico">⚠️</span><span>提醒</span></button>
+    <button class="tabbar__btn" data-view="logistics"><span class="ico">🛫</span><span>交通住宿</span></button>
   </nav>
 </div>
 
