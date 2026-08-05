@@ -34,6 +34,23 @@ function findCountryEntry(countryName) {
   return COUNTRY_CURRENCY.find((c) => c.country === countryName) || null;
 }
 
+const SPOT_TAGS = ["美食", "購物", "自然", "文化", "歷史", "夜景", "親子", "秘境", "打卡"];
+
+const EXPENSE_CATS = [
+  { key: "交通", icon: "🚗" },
+  { key: "住宿", icon: "🏨" },
+  { key: "餐飲", icon: "🍜" },
+  { key: "門票", icon: "🎫" },
+  { key: "購物", icon: "🛍️" },
+  { key: "其他", icon: "🧾" },
+];
+
+function emptyBudget() {
+  const byCategory = {};
+  EXPENSE_CATS.forEach((c) => { byCategory[c.key] = null; });
+  return { total: null, byCategory };
+}
+
 /* ---------- 預設清單內容（依交通方式 / 國家條件式產生） ---------- */
 function defaultPacking(currencyName, selfDrive) {
   const groups = [
@@ -102,6 +119,7 @@ function newTrip({ title, dateRange, dayCount, countryEntry, transport }) {
     transport: transport || "大眾運輸",
     currency: { code: countryEntry.code, symbol: countryEntry.symbol, name: countryEntry.name },
     exRate: countryEntry.rate,
+    budget: emptyBudget(),
     createdAt: Date.now(),
     spots: [],
     days: Array.from({ length: count }, (_, i) => ({ id: uid(), label: `Day ${i + 1}`, date: "", stops: [] })),
@@ -123,8 +141,9 @@ function migrateV2Trip(old) {
     transport: old.transport || "自駕",
     currency: old.currency || { code: "JPY", symbol: "¥", name: "日圓" },
     exRate: old.exRate ?? 0.21,
+    budget: old.budget || emptyBudget(),
     createdAt: old.createdAt || Date.now(),
-    spots: old.spots || [],
+    spots: (old.spots || []).map((s) => ({ tags: [], ...s })),
     days: old.days && old.days.length ? old.days : [],
     packing: old.packing || defaultPacking("日圓", true),
     expenses: old.expenses || [],
@@ -138,11 +157,17 @@ function loadJournal() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.trips)) return parsed;
+      if (parsed && Array.isArray(parsed.trips)) {
+        parsed.trips.forEach((t) => {
+          if (!t.budget) t.budget = emptyBudget();
+          (t.spots || []).forEach((s) => { if (!s.tags) s.tags = []; });
+        });
+        return parsed;
+      }
     }
   } catch (e) { /* ignore */ }
 
-  // 搬遷 v2（多趟旅遊，但無國家/貨幣欄位）
+  // 搬遷 v2（多趟旅遊，但無國家/貨幣/預算/標籤欄位）
   try {
     const v2raw = localStorage.getItem(OLD_STORAGE_KEY_V2);
     if (v2raw) {
@@ -182,6 +207,37 @@ function saveJournal() { localStorage.setItem(STORAGE_KEY, JSON.stringify(JOURNA
 
 const appState = { screen: "home", tripId: null };
 function currentTrip() { return JOURNAL.trips.find((t) => t.id === appState.tripId); }
+
+/* ---------- 深複製 + 重新產生所有巢狀 id ---------- */
+function regenerateIds(trip) {
+  trip.id = uid();
+  (trip.spots || []).forEach((s) => { s.id = uid(); });
+  (trip.days || []).forEach((d) => {
+    d.id = uid();
+    (d.stops || []).forEach((st) => { st.id = uid(); });
+  });
+  (trip.packing || []).forEach((g) => { (g.items || []).forEach((it) => { it.id = uid(); }); });
+  (trip.expenses || []).forEach((e) => { e.id = uid(); });
+  (trip.customPhrases || []).forEach((p) => { p.id = uid(); });
+  (trip.notes || []).forEach((n) => { n.id = uid(); });
+  return trip;
+}
+
+function duplicateTrip(trip, mode) {
+  const copy = JSON.parse(JSON.stringify(trip));
+  regenerateIds(copy);
+  copy.createdAt = Date.now();
+  if (mode === "template") {
+    copy.title = trip.title + "（範本）";
+    copy.spots = [];
+    copy.days = copy.days.map((d) => ({ id: uid(), label: d.label, date: "", stops: [] }));
+    copy.expenses = [];
+    copy.packing.forEach((g) => g.items.forEach((it) => { it.done = false; }));
+  } else {
+    copy.title = trip.title + "（複製）";
+  }
+  return copy;
+}
 
 /* ===================== 靜態會話資料 ===================== */
 const JP_PHRASES = [
@@ -246,6 +302,7 @@ function openTrip(id) {
   appState.screen = "trip";
   appState.tripId = id;
   spotFilter = "all";
+  spotTagFilter = "all";
   phraseFilter = "全部";
   currentDayIdx = 0;
   switchScreen("trip");
@@ -276,21 +333,101 @@ function renderHome() {
       const spotCount = trip.spots.length;
       const stopCount = trip.days.reduce((s, d) => s + d.stops.length, 0);
       const card = el(`
-        <button class="trip-card">
-          <div class="trip-card__strip"></div>
-          <div class="trip-card__body">
-            <p class="trip-card__title">${trip.flag || "🌍"} ${escapeHtml(trip.title)}</p>
-            <p class="trip-card__meta">${escapeHtml(trip.country || "")} · ${trip.dayCount}天${Math.max(trip.dayCount - 1, 0)}夜 · ${escapeHtml(trip.transport || "")}${trip.dateRange ? " · " + escapeHtml(trip.dateRange) : ""}</p>
-            <div class="trip-card__stats">
-              <span>📍 ${spotCount} 個景點</span>
-              <span>🛣️ ${stopCount} 個行程點</span>
+        <div class="trip-card-wrap">
+          <button class="trip-card">
+            <div class="trip-card__strip"></div>
+            <div class="trip-card__body">
+              <p class="trip-card__title">${trip.flag || "🌍"} ${escapeHtml(trip.title)}</p>
+              <p class="trip-card__meta">${escapeHtml(trip.country || "")} · ${trip.dayCount}天${Math.max(trip.dayCount - 1, 0)}夜 · ${escapeHtml(trip.transport || "")}${trip.dateRange ? " · " + escapeHtml(trip.dateRange) : ""}</p>
+              <div class="trip-card__stats">
+                <span>📍 ${spotCount} 個景點</span>
+                <span>🛣️ ${stopCount} 個行程點</span>
+              </div>
             </div>
-          </div>
-        </button>
+          </button>
+          <button class="trip-card__menu" data-menu title="更多">⋯</button>
+        </div>
       `);
-      card.addEventListener("click", () => openTrip(trip.id));
+      card.querySelector(".trip-card").addEventListener("click", () => openTrip(trip.id));
+      card.querySelector("[data-menu]").addEventListener("click", (e) => {
+        e.stopPropagation();
+        openTripActionSheet(trip);
+      });
       list.appendChild(card);
     });
+}
+
+function openTripActionSheet(trip) {
+  openModal(`
+    <h3>${trip.flag || ""} ${escapeHtml(trip.title)}</h3>
+    <div class="stack">
+      <button class="btn btn--ghost btn--block" data-act="dup-full">⧉ 複製（含所有資料）</button>
+      <button class="btn btn--ghost btn--block" data-act="dup-template">📋 複製為範本（清空行程與花費）</button>
+      <button class="btn btn--ghost btn--block" data-act="export">📤 匯出成檔案</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn--ghost" data-cancel>關閉</button>
+    </div>
+  `, (root) => {
+    root.querySelector('[data-act="dup-full"]').addEventListener("click", () => {
+      const copy = duplicateTrip(trip, "full");
+      JOURNAL.trips.push(copy);
+      saveJournal(); closeModal(); openTrip(copy.id);
+    });
+    root.querySelector('[data-act="dup-template"]').addEventListener("click", () => {
+      const copy = duplicateTrip(trip, "template");
+      JOURNAL.trips.push(copy);
+      saveJournal(); closeModal(); openTrip(copy.id);
+    });
+    root.querySelector('[data-act="export"]').addEventListener("click", () => {
+      exportTrip(trip);
+      closeModal();
+    });
+  });
+}
+
+function exportTrip(trip) {
+  const blob = new Blob([JSON.stringify(trip, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${trip.title.replace(/[\\/:*?"<>|]/g, "")}.tripjson.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function importTripFile() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json,.json";
+  input.addEventListener("change", () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        const trip = normalizeImportedTrip(data);
+        JOURNAL.trips.push(trip);
+        saveJournal();
+        renderHome();
+        alert(`已匯入「${trip.title}」`);
+      } catch (e) {
+        alert("匯入失敗，檔案格式不正確。請確認是從本手冊匯出的旅遊檔案。");
+      }
+    };
+    reader.readAsText(file);
+  });
+  input.click();
+}
+
+function normalizeImportedTrip(data) {
+  const base = migrateV2Trip(data);
+  regenerateIds(base);
+  base.createdAt = Date.now();
+  return base;
 }
 
 function countryOptionsHtml(selected) {
@@ -408,6 +545,7 @@ function switchView(name) {
 
 /* ===================== 景點 ===================== */
 let spotFilter = "all";
+let spotTagFilter = "all";
 function renderSpots() {
   const trip = currentTrip();
   if (!trip) return;
@@ -420,20 +558,34 @@ function renderSpots() {
     filterBar.appendChild(chip);
   });
 
+  const tagBar = $("#spotTagFilters");
+  tagBar.innerHTML = "";
+  ["all", ...SPOT_TAGS].forEach((tag) => {
+    const chip = el(`<button class="chip ${spotTagFilter===tag?"active":""}">${tag==="all"?"全部標籤":tag}</button>`);
+    chip.addEventListener("click", () => { spotTagFilter = tag; renderSpots(); });
+    tagBar.appendChild(chip);
+  });
+
   const list = $("#spotList");
   list.innerHTML = "";
-  const filtered = trip.spots.filter((s) => spotFilter === "all" || s.day === spotFilter);
+  const filtered = trip.spots.filter((s) => {
+    const dayOk = spotFilter === "all" || s.day === spotFilter;
+    const tagOk = spotTagFilter === "all" || (s.tags || []).includes(spotTagFilter);
+    return dayOk && tagOk;
+  });
   if (!filtered.length) {
-    list.appendChild(el(`<div class="empty-hint">還沒有景點，先點上方「＋ 新增景點」加入你想去的地方吧！</div>`));
+    list.appendChild(el(`<div class="empty-hint">還沒有符合條件的景點，先點上方「＋ 新增景點」加入你想去的地方吧！</div>`));
     return;
   }
   filtered.forEach((s) => {
+    const tagPills = (s.tags || []).map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join("");
     const card = el(`
       <div class="card spot-card">
         <div class="spot-card__badge ${s.priority === "必去" ? "must" : "maybe"}">${s.priority}</div>
         <div class="spot-card__body">
           <p class="spot-card__name">${escapeHtml(s.name)}</p>
           <p class="spot-card__meta">${escapeHtml(s.day || "尚未排定")}</p>
+          ${tagPills ? `<div class="tag-pill-row">${tagPills}</div>` : ""}
           ${s.note ? `<p class="spot-card__note">${escapeHtml(s.note)}</p>` : ""}
           <div class="spot-card__actions">
             <a class="map-link" target="_blank" rel="noopener" href="${mapUrl(s.name)}">在地圖開啟 ↗</a>
@@ -453,6 +605,9 @@ function renderSpots() {
 function openSpotForm() {
   const trip = currentTrip();
   const dayOpts = trip.days.map((d) => `<option value="${d.label}">${d.label}</option>`).join("");
+  const tagChecks = SPOT_TAGS.map((t) => `
+    <label class="tag-check"><input type="checkbox" value="${t}" /><span>${t}</span></label>
+  `).join("");
   openModal(`
     <h3>新增景點</h3>
     <div class="field"><label>名稱</label><input id="f-name" placeholder="例如：白川鄉合掌村" /></div>
@@ -465,6 +620,7 @@ function openSpotForm() {
     <div class="field"><label>安排在</label>
       <select id="f-day"><option value="">尚未排定</option>${dayOpts}<option value="備選">備選清單</option></select>
     </div>
+    <div class="field"><label>標籤（可複選）</label><div class="tag-check-row">${tagChecks}</div></div>
     <div class="field"><label>備註</label><textarea id="f-note" placeholder="營業時間、門票、小提醒..."></textarea></div>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>取消</button>
@@ -474,11 +630,13 @@ function openSpotForm() {
     root.querySelector("[data-save]").addEventListener("click", () => {
       const name = root.querySelector("#f-name").value.trim();
       if (!name) return;
+      const tags = $all('.tag-check input[type="checkbox"]:checked', root).map((cb) => cb.value);
       trip.spots.push({
         id: uid(),
         name,
         priority: root.querySelector('input[name="pri"]:checked').value,
         day: root.querySelector("#f-day").value,
+        tags,
         note: root.querySelector("#f-note").value.trim(),
       });
       saveJournal(); renderSpots(); closeModal();
@@ -486,8 +644,10 @@ function openSpotForm() {
   });
 }
 
-/* ===================== 每日行程（Road timeline）===================== */
+/* ===================== 每日行程（Road timeline + 拖曳排序）===================== */
 let currentDayIdx = 0;
+let daySortableInstance = null;
+
 function renderDays() {
   const trip = currentTrip();
   if (!trip) return;
@@ -501,6 +661,7 @@ function renderDays() {
 
   const day = trip.days[currentDayIdx];
   const road = $("#dayRoad");
+  if (daySortableInstance) { daySortableInstance.destroy(); daySortableInstance = null; }
   road.innerHTML = "";
   if (!day) { road.appendChild(el(`<div class="road-empty">這趟旅遊還沒有天數，請到⚙️設定新增。</div>`)); return; }
 
@@ -519,44 +680,63 @@ function renderDays() {
     roadInner.classList.remove("road");
     roadInner.appendChild(el(`<div class="road-empty">這天還沒有安排行程，點下方「＋ 新增行程點」開始規劃路線 🛣️</div>`));
   } else {
-    day.stops
-      .slice()
-      .sort((a, b) => (a.time || "").localeCompare(b.time || ""))
-      .forEach((stop, idx) => {
-        if (idx > 0 && stop.drive) {
-          roadInner.appendChild(el(`<div class="drive-chip">🚗 車程約 ${escapeHtml(stop.drive)}</div>`));
-        }
-        const card = el(`
-          <div class="road-stop">
-            <div class="card">
+    day.stops.forEach((stop, idx) => {
+      if (idx > 0 && stop.drive) {
+        roadInner.appendChild(el(`<div class="drive-chip">🚗 車程約 ${escapeHtml(stop.drive)}</div>`));
+      }
+      const card = el(`
+        <div class="road-stop" data-stop-id="${stop.id}">
+          <div class="card">
+            <div class="stop-drag-row">
+              <span class="drag-handle" title="拖曳排序">⠿</span>
               ${stop.time ? `<span class="stop-time">${escapeHtml(stop.time)}</span>` : ""}
-              <p class="stop-name">${escapeHtml(stop.name)}</p>
-              ${stop.note ? `<p class="stop-note">${escapeHtml(stop.note)}</p>` : ""}
-              <div class="spot-card__actions" style="margin-top:8px;">
-                <a class="map-link" target="_blank" rel="noopener" href="${mapUrl(stop.name)}">在地圖開啟 ↗</a>
-                <button class="btn btn--danger" data-del>刪除</button>
-              </div>
+            </div>
+            <p class="stop-name">${escapeHtml(stop.name)}</p>
+            ${stop.note ? `<p class="stop-note">${escapeHtml(stop.note)}</p>` : ""}
+            <div class="spot-card__actions" style="margin-top:8px;">
+              <a class="map-link" target="_blank" rel="noopener" href="${mapUrl(stop.name)}">在地圖開啟 ↗</a>
+              <button class="btn btn--danger" data-del>刪除</button>
             </div>
           </div>
-        `);
-        card.querySelector("[data-del]").addEventListener("click", () => {
-          day.stops = day.stops.filter((x) => x.id !== stop.id);
-          saveJournal(); renderDays();
-        });
-        roadInner.appendChild(card);
+        </div>
+      `);
+      card.querySelector("[data-del]").addEventListener("click", () => {
+        day.stops = day.stops.filter((x) => x.id !== stop.id);
+        saveJournal(); renderDays();
       });
+      roadInner.appendChild(card);
+    });
   }
   road.appendChild(roadInner);
+
+  if (day.stops.length > 1 && window.Sortable) {
+    daySortableInstance = new window.Sortable(roadInner, {
+      handle: ".drag-handle",
+      animation: 150,
+      onEnd: () => syncStopOrderFromDOM(day, roadInner),
+    });
+  }
 
   const addBtn = el(`<button class="btn btn--ghost">＋ 新增行程點</button>`);
   addBtn.addEventListener("click", () => openStopForm(day));
   road.appendChild(addBtn);
 }
 
+function syncStopOrderFromDOM(day, container) {
+  const ids = $all(".road-stop", container).map((n) => n.dataset.stopId);
+  const map = new Map(day.stops.map((s) => [s.id, s]));
+  const reordered = ids.map((id) => map.get(id)).filter(Boolean);
+  if (reordered.length === day.stops.length) {
+    day.stops = reordered;
+    saveJournal();
+    renderDays();
+  }
+}
+
 function openStopForm(day) {
   openModal(`
     <h3>新增行程點 — ${escapeHtml(day.label)}</h3>
-    <div class="field"><label>時間</label><input id="f-time" placeholder="例如 09:30" /></div>
+    <div class="field"><label>時間（選填，僅顯示用）</label><input id="f-time" placeholder="例如 09:30" /></div>
     <div class="field"><label>地點名稱</label><input id="f-name" placeholder="例如：新穗高纜車" /></div>
     <div class="field"><label>與前一站的車程（選填）</label><input id="f-drive" placeholder="例如 45分" /></div>
     <div class="field"><label>備註</label><textarea id="f-note" placeholder="停留時間、注意事項..."></textarea></div>
@@ -645,16 +825,24 @@ function openPackingForm() {
   });
 }
 
-/* ===================== 記帳 ===================== */
-const EXPENSE_CATS = [
-  { key: "交通", icon: "🚗" },
-  { key: "住宿", icon: "🏨" },
-  { key: "餐飲", icon: "🍜" },
-  { key: "門票", icon: "🎫" },
-  { key: "購物", icon: "🛍️" },
-  { key: "其他", icon: "🧾" },
-];
+/* ===================== 記帳（含預算） ===================== */
 function iconFor(cat) { return (EXPENSE_CATS.find((c) => c.key === cat) || {}).icon || "🧾"; }
+
+function budgetBarHtml(spent, budget, label) {
+  if (budget == null || budget <= 0) return "";
+  const pct = Math.min(spent / budget, 1);
+  const over = spent > budget;
+  const cls = over ? "over" : pct >= 0.8 ? "warn" : "ok";
+  return `
+    <div class="budget-row">
+      <div class="budget-row__labels">
+        <span>${escapeHtml(label)}</span>
+        <span class="${over ? "budget-over-text" : ""}">${spent.toLocaleString()} / ${budget.toLocaleString()}</span>
+      </div>
+      <div class="budget-bar"><div class="budget-bar__fill ${cls}" style="width:${pct*100}%;"></div></div>
+    </div>
+  `;
+}
 
 function renderExpenses() {
   const trip = currentTrip();
@@ -665,6 +853,24 @@ function renderExpenses() {
   const total = trip.expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
   $("#totalJPY").textContent = symbol + total.toLocaleString();
   $("#totalTWD").textContent = "NT$" + Math.round(total * trip.exRate).toLocaleString();
+
+  // 預算區塊
+  const budgetWrap = $("#budgetSection");
+  budgetWrap.innerHTML = "";
+  const budget = trip.budget || emptyBudget();
+  let budgetHtml = "";
+  if (budget.total) budgetHtml += budgetBarHtml(total, budget.total, `總預算（${symbol}）`);
+  EXPENSE_CATS.forEach((c) => {
+    const limit = budget.byCategory && budget.byCategory[c.key];
+    if (!limit) return;
+    const spent = trip.expenses.filter((e) => e.category === c.key).reduce((s, e) => s + Number(e.amount || 0), 0);
+    budgetHtml += budgetBarHtml(spent, limit, `${c.icon} ${c.key}`);
+  });
+  if (budgetHtml) {
+    budgetWrap.appendChild(el(`<div class="card budget-card">${budgetHtml}</div>`));
+  } else {
+    budgetWrap.appendChild(el(`<div class="empty-hint">還沒有設定預算，可以到 ⚙️ 設定頁設定總預算或分類預算，這裡會顯示花費進度。</div>`));
+  }
 
   const byCat = $("#expenseByCategory");
   byCat.innerHTML = "";
@@ -866,8 +1072,17 @@ function renderSettings() {
   if (!trip) return;
   const wrap = $("#settingsFields");
   wrap.innerHTML = "";
+  const budget = trip.budget || emptyBudget();
+
+  const catBudgetFields = EXPENSE_CATS.map((c) => `
+    <div>
+      <label style="font-size:11.5px;color:var(--ink-soft);font-weight:700;">${c.icon} ${c.key}</label>
+      <input type="number" class="s-cat-budget" data-cat="${c.key}" value="${budget.byCategory && budget.byCategory[c.key] != null ? budget.byCategory[c.key] : ""}" placeholder="不限" />
+    </div>
+  `).join("");
 
   const form = el(`
+    <div>
     <div class="card">
       <div class="settings-field">
         <label>國家 / 地區</label>
@@ -891,8 +1106,20 @@ function renderSettings() {
         <label>目前天數：${trip.days.length} 天</label>
         <button class="btn btn--ghost" id="s-add-day" style="margin-top:0;">＋ 新增一天</button>
       </div>
+      <div class="settings-field">
+        <label>總預算（${escapeHtml(trip.currency.name||"當地貨幣")}，不填代表不限制）</label>
+        <input type="number" id="s-total-budget" value="${budget.total != null ? budget.total : ""}" placeholder="例如 30000" />
+      </div>
+      <div class="settings-field">
+        <label>分類預算（選填）</label>
+        <div class="settings-row settings-row--wrap">${catBudgetFields}</div>
+      </div>
       <button class="btn btn--primary btn--block" id="s-save">儲存設定</button>
       <p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px;">變更國家/貨幣不會刪除已建立的景點與行程，但預設清單與例句只會在新增旅遊時套用一次，之後可自行增刪。</p>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <button class="btn btn--ghost btn--block" id="s-export">📤 匯出這趟旅遊（存成檔案分享給別人）</button>
+    </div>
     </div>
   `);
 
@@ -909,6 +1136,8 @@ function renderSettings() {
     renderDays();
     renderTripHeader();
   });
+
+  form.querySelector("#s-export").addEventListener("click", () => exportTrip(currentTrip()));
 
   form.querySelector("#s-save").addEventListener("click", () => {
     const t = currentTrip();
@@ -930,6 +1159,15 @@ function renderSettings() {
       }
     }
     t.transport = form.querySelector("#s-transport").value;
+
+    const totalVal = form.querySelector("#s-total-budget").value;
+    if (!t.budget) t.budget = emptyBudget();
+    t.budget.total = totalVal === "" ? null : Number(totalVal);
+    $all(".s-cat-budget", form).forEach((input) => {
+      const v = input.value;
+      t.budget.byCategory[input.dataset.cat] = v === "" ? null : Number(v);
+    });
+
     saveJournal();
     renderTripHeader();
     renderExpenses();
@@ -979,6 +1217,7 @@ function init() {
   $("#backHome").addEventListener("click", goHome);
   $("#openSettings").addEventListener("click", () => switchView("settings"));
   $("#fetchRateBtn").addEventListener("click", fetchLiveRate);
+  $("#importTripBtn").addEventListener("click", importTripFile);
   $("#deleteTripBtn").addEventListener("click", () => {
     const trip = currentTrip();
     if (!trip) return;
