@@ -1,7 +1,7 @@
 {
-  "name": "日本自駕旅遊手帳",
-  "short_name": "旅遊手帳",
-  "description": "8月底日本自駕旅遊 — 景點、行程、準備清單與記帳",
+  "name": "旅遊紀錄手冊",
+  "short_name": "旅遊手冊",
+  "description": "多趟旅遊紀錄 — 景點、行程、準備清單與記帳",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

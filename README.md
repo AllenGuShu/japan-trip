@@ -1,23 +1,28 @@
-# 日本自駕旅遊手帳
+# 旅遊紀錄手冊
 
 純前端 PWA，資料存在瀏覽器 localStorage，不需要後端、不需要資料庫。
 
+## 這次更新了什麼
+
+- 首頁改成「旅遊列表」，可以建立多趟旅遊（每趟有自己的名稱、日期、天數）
+- 點某趟旅遊卡片才會進入景點／行程／準備／記帳／會話／提醒畫面，資料彼此獨立
+- 旅遊內頁右上角新增「⚙️ 設定」，可以刪除該趟旅遊
+- 如果你手機上還留著舊版（單一趟旅遊）的資料，第一次打開新版時會**自動搬進手冊**，變成第一筆旅遊紀錄，不會遺失
+
 ## 部署步驟（GitHub Desktop + Vercel）
 
-1. 開 GitHub Desktop → File → New Repository，Local Path 選這個資料夾（或建新資料夾後把這些檔案全部拖進去）。
-2. Publish repository 到 GitHub（Public 或 Private 皆可）。
-3. 到 [vercel.com](https://vercel.com) → Add New Project → Import 剛剛那個 repo。
-4. Framework Preset 選 **Other**（純靜態網站，不需要 build command，Output Directory 留空或填 `.` 即可）。
-5. Deploy，完成後會拿到一個 `xxx.vercel.app` 網址。
+1. 用 GitHub Desktop 打開你原本的 `japan-trip-pwa` repo（同一個，不用建新的）
+2. 把這次的檔案（index.html、style.css、app.js、manifest.json、sw.js）覆蓋貼進資料夾
+3. GitHub Desktop 左邊會列出變更 → Summary 填「改成多趟旅遊手冊」→ Commit to main → Push origin
+4. Vercel 會自動偵測並重新部署，不用重新 Import
 
 ## 加到手機主畫面
 
 - **iPhone (Safari)**：開網址 → 分享按鈕 → 加入主畫面
 - **Android (Chrome)**：開網址 → 右上角選單 → 加到主畫面 / 安裝應用程式
 
-加入後會以全螢幕 App 的方式開啟，且離線也能瀏覽已載入過的頁面內容。
+如果手機上已經加過主畫面圖示，這次更新**不用重新加**，直接開啟原本的圖示，內容會自動更新（PWA 背景會抓新版本）。若畫面看起來還是舊版，把 App 完全關閉（滑掉）再重新打開一次即可。
 
-## 之後想修改內容
+## 資料保存
 
-- 直接跟 Claude 說要調整哪個部分（配色、功能、預設清單內容等），改完的檔案用 GitHub Desktop commit + push，Vercel 會自動重新部署。
-- 所有使用者輸入的資料（景點、行程、記帳等）都存在**該台裝置瀏覽器**的 localStorage，換裝置或清瀏覽器資料會遺失，目前沒有雲端同步機制。
+所有資料都存在**該台裝置瀏覽器**的 localStorage，換裝置或清瀏覽器資料會遺失，目前沒有雲端同步機制。

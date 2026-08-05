@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>日本自駕旅遊手帳</title>
+<title>旅遊紀錄手冊</title>
 <meta name="theme-color" content="#0B6E4F" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="旅遊手帳" />
+<meta name="apple-mobile-web-app-title" content="旅遊手冊" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -18,101 +18,134 @@
 </head>
 <body>
 
-<header class="route-header">
-  <div class="route-header__top">
-    <span class="route-badge">🇯🇵 EXPRESSWAY</span>
-    <span id="countdown" class="countdown">-- 天後出發</span>
-  </div>
-  <h1 id="tripTitle" class="route-title" contenteditable="true" spellcheck="false">日本自駕旅遊</h1>
-  <div class="route-sub">
-    <span>6天5夜・自駕</span>
-    <span class="dot">・</span>
-    <span id="tripDateRange" contenteditable="true" spellcheck="false">點此設定日期</span>
-  </div>
-</header>
-
-<main id="views">
-
-  <!-- 景點 -->
-  <section id="view-spots" class="view active">
-    <div class="view-head">
-      <h2>景點清單</h2>
-      <button class="btn btn--primary" data-open="spot-form">＋ 新增景點</button>
+<!-- ===================== 首頁：旅遊列表 ===================== -->
+<div id="screen-home" class="screen active">
+  <header class="route-header">
+    <div class="route-header__top">
+      <span class="route-badge">📖 JOURNAL</span>
+      <span id="tripCount" class="countdown">0 趟旅程</span>
     </div>
-    <div class="filter-row" id="spotFilters"></div>
-    <div id="spotList" class="stack"></div>
-  </section>
+    <h1 class="route-title">旅遊紀錄手冊</h1>
+    <div class="route-sub"><span>每一趟旅程都留一份路線紀錄</span></div>
+  </header>
 
-  <!-- 行程 -->
-  <section id="view-days" class="view">
-    <div class="view-head">
-      <h2>每日行程</h2>
-    </div>
-    <div class="day-tabs" id="dayTabs"></div>
-    <div id="dayRoad" class="road"></div>
-  </section>
+  <main class="home-main">
+    <button class="btn btn--primary btn--block" data-open="trip-form">＋ 新增一趟旅遊</button>
+    <div id="tripList" class="stack trip-list"></div>
+  </main>
+</div>
 
-  <!-- 準備清單 -->
-  <section id="view-packing" class="view">
-    <div class="view-head">
-      <h2>行前準備清單</h2>
-      <span class="progress-pill" id="packingProgress">0/0</span>
-    </div>
-    <div id="packingList" class="stack"></div>
-    <button class="btn btn--ghost" data-open="packing-form">＋ 新增項目</button>
-  </section>
-
-  <!-- 記帳 -->
-  <section id="view-expenses" class="view">
-    <div class="view-head">
-      <h2>旅費記帳</h2>
-    </div>
-    <div class="expense-summary">
-      <div class="expense-total">
-        <span class="label">總支出</span>
-        <span class="value"><span id="totalJPY">¥0</span></span>
-        <span class="value-sub">約 <span id="totalTWD">NT$0</span></span>
+<!-- ===================== 單趟旅遊內頁 ===================== -->
+<div id="screen-trip" class="screen">
+  <header class="route-header">
+    <div class="route-header__top">
+      <button id="backHome" class="back-btn">← 回手冊</button>
+      <div class="header-right">
+        <span id="countdown" class="countdown">-- 天後出發</span>
+        <button id="openSettings" class="icon-btn" title="旅遊設定">⚙️</button>
       </div>
-      <label class="rate-input">
-        匯率 1 JPY =
-        <input type="number" id="exRate" step="0.001" />
-        TWD
-      </label>
     </div>
-    <div id="expenseByCategory" class="chip-row"></div>
-    <div id="expenseList" class="stack"></div>
-    <button class="btn btn--primary" data-open="expense-form">＋ 新增花費</button>
-  </section>
-
-  <!-- 會話 -->
-  <section id="view-phrases" class="view">
-    <div class="view-head">
-      <h2>開車 / 旅遊會話小抄</h2>
+    <h1 id="tripTitle" class="route-title" contenteditable="true" spellcheck="false">日本自駕旅遊</h1>
+    <div class="route-sub">
+      <span id="tripDaysLabel">6天5夜・自駕</span>
+      <span class="dot">・</span>
+      <span id="tripDateRange" contenteditable="true" spellcheck="false">點此設定日期</span>
     </div>
-    <div class="filter-row" id="phraseFilters"></div>
-    <div id="phraseList" class="stack"></div>
-    <button class="btn btn--ghost" data-open="phrase-form">＋ 新增自訂例句</button>
-  </section>
+  </header>
 
-  <!-- 注意事項 -->
-  <section id="view-notes" class="view">
-    <div class="view-head">
-      <h2>注意事項</h2>
-    </div>
-    <div id="noteList" class="stack"></div>
-    <button class="btn btn--ghost" data-open="note-form">＋ 新增提醒</button>
-  </section>
+  <main id="views">
 
-</main>
+    <!-- 景點 -->
+    <section id="view-spots" class="view active">
+      <div class="view-head">
+        <h2>景點清單</h2>
+        <button class="btn btn--primary" data-open="spot-form">＋ 新增景點</button>
+      </div>
+      <div class="filter-row" id="spotFilters"></div>
+      <div id="spotList" class="stack"></div>
+    </section>
 
-<nav class="tabbar" id="tabbar">
-  <button class="tabbar__btn active" data-view="spots"><span class="ico">📍</span><span>景點</span></button>
-  <button class="tabbar__btn" data-view="days"><span class="ico">🛣️</span><span>行程</span></button>
-  <button class="tabbar__btn" data-view="packing"><span class="ico">🧳</span><span>準備</span></button>
-  <button class="tabbar__btn" data-view="expenses"><span class="ico">💰</span><span>記帳</span></button>
-  <button class="tabbar__btn" data-view="phrases"><span class="ico">💬</span><span>會話</span></button>
-  <button class="tabbar__btn" data-view="notes"><span class="ico">⚠️</span><span>提醒</span></button>
-</nav>
+    <!-- 行程 -->
+    <section id="view-days" class="view">
+      <div class="view-head">
+        <h2>每日行程</h2>
+      </div>
+      <div class="day-tabs" id="dayTabs"></div>
+      <div id="dayRoad" class="road"></div>
+    </section>
+
+    <!-- 準備清單 -->
+    <section id="view-packing" class="view">
+      <div class="view-head">
+        <h2>行前準備清單</h2>
+        <span class="progress-pill" id="packingProgress">0/0</span>
+      </div>
+      <div id="packingList" class="stack"></div>
+      <button class="btn btn--ghost" data-open="packing-form">＋ 新增項目</button>
+    </section>
+
+    <!-- 記帳 -->
+    <section id="view-expenses" class="view">
+      <div class="view-head">
+        <h2>旅費記帳</h2>
+      </div>
+      <div class="expense-summary">
+        <div class="expense-total">
+          <span class="label">總支出</span>
+          <span class="value"><span id="totalJPY">¥0</span></span>
+          <span class="value-sub">約 <span id="totalTWD">NT$0</span></span>
+        </div>
+        <label class="rate-input">
+          匯率 1 JPY =
+          <input type="number" id="exRate" step="0.001" />
+          TWD
+        </label>
+      </div>
+      <div id="expenseByCategory" class="chip-row"></div>
+      <div id="expenseList" class="stack"></div>
+      <button class="btn btn--primary" data-open="expense-form">＋ 新增花費</button>
+    </section>
+
+    <!-- 會話 -->
+    <section id="view-phrases" class="view">
+      <div class="view-head">
+        <h2>開車 / 旅遊會話小抄</h2>
+      </div>
+      <div class="filter-row" id="phraseFilters"></div>
+      <div id="phraseList" class="stack"></div>
+      <button class="btn btn--ghost" data-open="phrase-form">＋ 新增自訂例句</button>
+    </section>
+
+    <!-- 注意事項 -->
+    <section id="view-notes" class="view">
+      <div class="view-head">
+        <h2>注意事項</h2>
+      </div>
+      <div id="noteList" class="stack"></div>
+      <button class="btn btn--ghost" data-open="note-form">＋ 新增提醒</button>
+    </section>
+
+    <!-- 旅遊設定 -->
+    <section id="view-settings" class="view">
+      <div class="view-head">
+        <h2>旅遊設定</h2>
+      </div>
+      <div class="card">
+        <button class="btn btn--danger btn--block" id="deleteTripBtn">🗑 刪除這趟旅遊</button>
+      </div>
+    </section>
+
+  </main>
+
+  <nav class="tabbar" id="tabbar">
+    <button class="tabbar__btn active" data-view="spots"><span class="ico">📍</span><span>景點</span></button>
+    <button class="tabbar__btn" data-view="days"><span class="ico">🛣️</span><span>行程</span></button>
+    <button class="tabbar__btn" data-view="packing"><span class="ico">🧳</span><span>準備</span></button>
+    <button class="tabbar__btn" data-view="expenses"><span class="ico">💰</span><span>記帳</span></button>
+    <button class="tabbar__btn" data-view="phrases"><span class="ico">💬</span><span>會話</span></button>
+    <button class="tabbar__btn" data-view="notes"><span class="ico">⚠️</span><span>提醒</span></button>
+  </nav>
+</div>
 
 <!-- Modal host -->
 <div id="modalRoot" class="modal-root"></div>
