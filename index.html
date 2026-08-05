@@ -96,10 +96,12 @@
           <span class="value-sub">約 <span id="totalTWD">NT$0</span></span>
         </div>
         <label class="rate-input">
-          匯率 1 JPY =
-          <input type="number" id="exRate" step="0.001" />
+          匯率 1 <span id="rateFromCode">JPY</span> =
+          <input type="number" id="exRate" step="0.0001" />
           TWD
         </label>
+        <button class="btn btn--small rate-fetch-btn" id="fetchRateBtn">📡 抓即時匯率</button>
+        <span id="rateStatus" class="rate-status"></span>
       </div>
       <div id="expenseByCategory" class="chip-row"></div>
       <div id="expenseList" class="stack"></div>
@@ -130,7 +132,8 @@
       <div class="view-head">
         <h2>旅遊設定</h2>
       </div>
-      <div class="card">
+      <div id="settingsFields"></div>
+      <div class="card" style="margin-top:16px;">
         <button class="btn btn--danger btn--block" id="deleteTripBtn">🗑 刪除這趟旅遊</button>
       </div>
     </section>
