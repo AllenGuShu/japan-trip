@@ -1652,6 +1652,57 @@ function initFormTriggers() {
   });
 }
 
+/* ===================== 安裝提示（讓 App 感更完整） ===================== */
+const INSTALL_DISMISS_KEY = "install-banner-dismissed";
+let deferredInstallPrompt = null;
+
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+function isIOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+}
+
+function maybeShowInstallBanner() {
+  if (isStandalone()) return;
+  if (localStorage.getItem(INSTALL_DISMISS_KEY)) return;
+  const banner = $("#installBanner");
+  if (!banner) return;
+  if (deferredInstallPrompt) {
+    $("#installBannerSub").textContent = "像 App 一樣全螢幕使用，離線也能查看";
+    $("#installBannerAction").hidden = false;
+  } else if (isIOS()) {
+    $("#installBannerSub").textContent = "點下方分享按鈕 → 加入主畫面";
+    $("#installBannerAction").hidden = true;
+  } else {
+    return;
+  }
+  banner.hidden = false;
+}
+
+function initInstallBanner() {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    maybeShowInstallBanner();
+  });
+  window.addEventListener("appinstalled", () => { $("#installBanner").hidden = true; });
+
+  $("#installBannerClose").addEventListener("click", () => {
+    localStorage.setItem(INSTALL_DISMISS_KEY, "1");
+    $("#installBanner").hidden = true;
+  });
+  $("#installBannerAction").addEventListener("click", async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    $("#installBanner").hidden = true;
+  });
+
+  setTimeout(maybeShowInstallBanner, 1200);
+}
+
 /* ===================== 初始化 ===================== */
 function init() {
   applyTheme(getTheme());
@@ -1660,7 +1711,14 @@ function init() {
 
   initTabbar();
   initFormTriggers();
+  initInstallBanner();
   renderHome();
+
+  const params = new URLSearchParams(location.search);
+  if (params.get("action") === "new") {
+    openTripForm();
+    history.replaceState(null, "", "./");
+  }
 
   $("#backHome").addEventListener("click", goHome);
   $("#openSettings").addEventListener("click", () => switchView("settings"));

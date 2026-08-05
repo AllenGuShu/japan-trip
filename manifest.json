@@ -1,16 +1,33 @@
 {
+  "id": "/",
   "name": "旅遊紀錄手冊",
   "short_name": "旅遊手冊",
   "description": "多趟旅遊紀錄 — 景點、行程、準備清單與記帳",
+  "lang": "zh-Hant",
+  "dir": "ltr",
+  "categories": ["travel", "lifestyle"],
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone"],
   "orientation": "portrait",
   "background_color": "#F4F5EF",
   "theme_color": "#0B6E4F",
   "icons": [
+    { "src": "icons/icon-32.png", "sizes": "32x32", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-152.png", "sizes": "152x152", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-167.png", "sizes": "167x167", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "新增一趟旅遊",
+      "short_name": "新增旅遊",
+      "url": "./index.html?action=new",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    }
   ]
 }

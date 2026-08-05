@@ -6,9 +6,14 @@
 <title>旅遊紀錄手冊</title>
 <meta name="theme-color" content="#0B6E4F" />
 <link rel="manifest" href="manifest.json" />
-<link rel="icon" href="icons/icon-192.png" />
-<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="icon" href="icons/icon-32.png" sizes="32x32" />
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" />
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="icons/icon-152.png" />
+<link rel="apple-touch-icon" sizes="167x167" href="icons/icon-167.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="旅遊手冊" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -173,6 +178,17 @@
 
 <!-- Modal host -->
 <div id="modalRoot" class="modal-root"></div>
+
+<!-- 安裝提示橫幅 -->
+<div id="installBanner" class="install-banner" hidden>
+  <span class="install-banner__icon">📲</span>
+  <div class="install-banner__text">
+    <p id="installBannerTitle">把手冊加到主畫面</p>
+    <p id="installBannerSub" class="install-banner__sub">像 App 一樣全螢幕使用，離線也能查看</p>
+  </div>
+  <button id="installBannerAction" class="btn btn--small btn--primary" hidden>安裝</button>
+  <button id="installBannerClose" class="install-banner__close" title="關閉">✕</button>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 <script src="app.js"></script>
