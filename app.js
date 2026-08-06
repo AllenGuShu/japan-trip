@@ -33,7 +33,7 @@ const COUNTRY_CURRENCY = [
 const CUSTOM_COUNTRY = { country: "其他（自訂）", flag: "🌍", code: "", symbol: "", name: "當地貨幣", rate: 1 };
 function findCountryEntry(countryName) { return COUNTRY_CURRENCY.find((c) => c.country === countryName) || null; }
 
-const SPOT_TAGS = ["美食", "購物", "自然", "文化", "歷史", "夜景", "親子", "秘境", "打卡"];
+const STOP_TAGS = ["美食", "購物", "自然", "文化", "歷史", "夜景", "親子", "秘境", "打卡"];
 const EXPENSE_CATS = [
   { key: "交通", icon: "🚗" }, { key: "住宿", icon: "🏨" }, { key: "餐飲", icon: "🍜" },
   { key: "門票", icon: "🎫" }, { key: "購物", icon: "🛍️" }, { key: "其他", icon: "🧾" },
@@ -48,7 +48,25 @@ function emptyBudget() {
   return { total: null, byCategory };
 }
 
-/* ---------- 預設清單內容 ---------- */
+/* ---------- 日期工具 ---------- */
+function addDaysISO(iso, n) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function isoToSlash(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${y}/${Number(m)}/${Number(d)}`;
+}
+function formatDateDisplay(iso) {
+  if (!iso) return "";
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("zh-TW", { month: "numeric", day: "numeric", weekday: "short" });
+}
+
+/* ---------- 預設準備清單 ---------- */
 function defaultPacking(currencyName, selfDrive) {
   const groups = [
     { category: "證件與文件", items: ["護照（效期6個月以上）", "護照影本 x2", "機票 / 電子機票", "住宿訂房確認單", "海外旅平險保單"] },
@@ -61,38 +79,17 @@ function defaultPacking(currencyName, selfDrive) {
   return groups.map((g) => ({ category: g.category, items: g.items.map((text) => ({ id: uid(), text, done: false })) }));
 }
 
-function defaultNotes(countryName, selfDrive) {
-  const notes = [
-    { icon: "🛂", text: "出發前確認護照效期是否符合當地入境規定（多數國家要求 6 個月以上）。" },
-    { icon: "💱", text: "先兌換少量現金應急，其餘可視當地刷卡/行動支付普及程度調整比例。" },
-    { icon: "🔌", text: "確認當地電壓與插座型式，需要的話帶轉接頭。" },
-    { icon: "🕒", text: "留意與台灣的時差，抵達後記得調整手機/手錶時間。" },
-    { icon: "📄", text: "護照、機票、保單建議另外存一份電子檔（雲端或手機相簿）以防遺失。" },
-  ];
-  if (selfDrive) {
-    notes.push(
-      { icon: "🚗", text: "出發前確認當地行駛方向（靠左或靠右），上路前先熟悉方向燈、雨刷等操作。" },
-      { icon: "🪪", text: "確認國際駕照是否為當地承認的日內瓦公約駕照，部分國家需另外申請認證。" },
-      { icon: "⛽", text: "了解當地加油方式（自助/有人）與付款方式，備妥現金或信用卡。" },
-      { icon: "🅿️", text: "先查好目的地停車方式與費率，避免臨時找不到車位。" },
-    );
-  }
-  if (countryName === "日本") {
-    notes.push(
-      { icon: "🛣️", text: "日本高速公路多為 ETC 車道，若車輛未裝 ETC 卡要走一般收費車道。" },
-      { icon: "🗑️", text: "路上垃圾桶少，垃圾請自行帶回住宿或便利商店丟棄，不可亂丟。" },
-    );
-  }
-  return notes.map((n) => ({ id: uid(), ...n }));
-}
-
-function newTrip({ title, dateRange, dayCount, countryEntry, transport }) {
+function newTrip({ title, startDate, dayCount, countryEntry, transport }) {
   const count = Math.min(Math.max(Number(dayCount) || 1, 1), 30);
   const selfDrive = transport === "自駕" || transport === "兩者都有";
+  const days = Array.from({ length: count }, (_, i) => ({
+    id: uid(), label: `Day ${i + 1}`, date: startDate ? addDaysISO(startDate, i) : "", journal: "", stops: [],
+  }));
+  const dateRange = startDate ? `${isoToSlash(startDate)}-${isoToSlash(addDaysISO(startDate, count - 1))}` : "";
   return {
     id: uid(),
     title: title || "未命名旅遊",
-    dateRange: dateRange || "",
+    dateRange,
     dayCount: count,
     country: countryEntry.country,
     flag: countryEntry.flag,
@@ -102,11 +99,11 @@ function newTrip({ title, dateRange, dayCount, countryEntry, transport }) {
     budget: emptyBudget(),
     createdAt: Date.now(),
     spots: [],
-    days: Array.from({ length: count }, (_, i) => ({ id: uid(), label: `Day ${i + 1}`, date: "", journal: "", stops: [] })),
+    days,
     packing: defaultPacking(countryEntry.name, selfDrive),
     expenses: [],
     customPhrases: [],
-    notes: defaultNotes(countryEntry.country, selfDrive),
+    notes: [],
     flights: [],
     lodging: [],
     transportItems: [],
@@ -129,11 +126,11 @@ function migrateV2Trip(old) {
     budget: old.budget || emptyBudget(),
     createdAt: old.createdAt || Date.now(),
     spots: (old.spots || []).map((s) => ({ tags: [], ...s })),
-    days: old.days && old.days.length ? old.days.map((d) => ({ journal: "", ...d })) : [],
+    days: old.days && old.days.length ? old.days.map((d) => ({ journal: "", ...d, stops: (d.stops||[]).map(s=>({tags:[],...s})) })) : [],
     packing: old.packing || defaultPacking("日圓", true),
     expenses: old.expenses || [],
     customPhrases: old.customPhrases || [],
-    notes: old.notes || defaultNotes("日本", true),
+    notes: old.notes || [],
     flights: old.flights || [],
     lodging: old.lodging || [],
     transportItems: old.transportItems || [],
@@ -155,8 +152,12 @@ function loadJournal() {
           if (!t.transportItems) t.transportItems = [];
           if (t.weatherCity === undefined) t.weatherCity = "";
           if (t.weatherCache === undefined) t.weatherCache = null;
+          if (!t.notes) t.notes = [];
           (t.spots || []).forEach((s) => { if (!s.tags) s.tags = []; });
-          (t.days || []).forEach((d) => { if (d.journal === undefined) d.journal = ""; });
+          (t.days || []).forEach((d) => {
+            if (d.journal === undefined) d.journal = "";
+            (d.stops || []).forEach((s) => { if (!s.tags) s.tags = []; });
+          });
         });
         return parsed;
       }
@@ -216,6 +217,7 @@ function duplicateTrip(trip, mode) {
     copy.title = trip.title + "（範本）";
     copy.spots = [];
     copy.days = copy.days.map((d) => ({ id: uid(), label: d.label, date: "", journal: "", stops: [] }));
+    copy.dateRange = "";
     copy.expenses = [];
     copy.flights = [];
     copy.lodging = [];
@@ -228,33 +230,99 @@ function duplicateTrip(trip, mode) {
   return copy;
 }
 
-/* ===================== 靜態會話資料 ===================== */
+/* ===================== 靜態會話資料（每類 8 句） ===================== */
 const JP_PHRASES = [
   { cat: "加油站", jp: "満タンでお願いします。", reading: "まんたんで おねがいします。", zh: "請幫我加滿。" },
   { cat: "加油站", jp: "レギュラーを入れてください。", reading: "れぎゅらーを いれてください。", zh: "請加普通汽油。" },
+  { cat: "加油站", jp: "ハイオクを入れてください。", reading: "はいおくを いれてください。", zh: "請加高級汽油。" },
+  { cat: "加油站", jp: "軽油を入れてください。", reading: "けいゆを いれてください。", zh: "請加柴油。" },
+  { cat: "加油站", jp: "カードで払えますか？", reading: "かーどで はらえますか？", zh: "可以刷卡嗎？" },
+  { cat: "加油站", jp: "現金で払います。", reading: "げんきんで はらいます。", zh: "我要付現金。" },
+  { cat: "加油站", jp: "セルフですか？", reading: "せるふですか？", zh: "這是自助加油嗎？" },
+  { cat: "加油站", jp: "領収書をもらえますか？", reading: "りょうしゅうしょを もらえますか？", zh: "可以給我收據嗎？" },
+
   { cat: "停車場", jp: "駐車場はどこですか？", reading: "ちゅうしゃじょうは どこですか？", zh: "停車場在哪裡？" },
   { cat: "停車場", jp: "何時間まで停められますか？", reading: "なんじかんまで とめられますか？", zh: "最多可以停幾小時？" },
+  { cat: "停車場", jp: "一泊いくらですか？", reading: "いっぱく いくらですか？", zh: "停一晚多少錢？" },
+  { cat: "停車場", jp: "満車ですか？", reading: "まんしゃですか？", zh: "已經滿了嗎？" },
+  { cat: "停車場", jp: "ここに駐車してもいいですか？", reading: "ここに ちゅうしゃしても いいですか？", zh: "可以停在這裡嗎？" },
+  { cat: "停車場", jp: "出口はどこですか？", reading: "でぐちは どこですか？", zh: "出口在哪裡？" },
+  { cat: "停車場", jp: "駐車券をなくしました。", reading: "ちゅうしゃけんを なくしました。", zh: "我的停車券不見了。" },
+  { cat: "停車場", jp: "支払い機はどこですか？", reading: "しはらいきは どこですか？", zh: "繳費機在哪裡？" },
+
   { cat: "開車問路", jp: "この道で合っていますか？", reading: "このみちで あっていますか？", zh: "這條路走對了嗎？" },
   { cat: "開車問路", jp: "次の高速の入口はどこですか？", reading: "つぎの こうそくの いりぐちは どこですか？", zh: "下一個高速公路入口在哪？" },
+  { cat: "開車問路", jp: "高速道路の料金はいくらですか？", reading: "こうそくどうろの りょうきんは いくらですか？", zh: "高速公路過路費多少？" },
+  { cat: "開車問路", jp: "この先に道の駅はありますか？", reading: "このさきに みちのえきは ありますか？", zh: "前面有道の駅（休息站）嗎？" },
+  { cat: "開車問路", jp: "近くにコンビニはありますか？", reading: "ちかくに こんびには ありますか？", zh: "附近有便利商店嗎？" },
+  { cat: "開車問路", jp: "ここは一方通行ですか？", reading: "ここは いっぽうつうこうですか？", zh: "這裡是單行道嗎？" },
+  { cat: "開車問路", jp: "渋滞していますか？", reading: "じゅうたいしていますか？", zh: "現在塞車嗎？" },
+  { cat: "開車問路", jp: "カーナビの設定を手伝ってもらえますか？", reading: "かーなびの せっていを てつだって もらえますか？", zh: "可以幫我設定車用導航嗎？" },
+
   { cat: "餐廳", jp: "二名です、席はありますか？", reading: "にめいです、せきは ありますか？", zh: "兩位，有位子嗎？" },
   { cat: "餐廳", jp: "おすすめは何ですか？", reading: "おすすめは なんですか？", zh: "有什麼推薦的嗎？" },
   { cat: "餐廳", jp: "お会計をお願いします。", reading: "おかいけいを おねがいします。", zh: "請幫我結帳。" },
+  { cat: "餐廳", jp: "メニューを見せてください。", reading: "めにゅーを みせてください。", zh: "請給我看菜單。" },
+  { cat: "餐廳", jp: "辛くないものはありますか？", reading: "からくない ものは ありますか？", zh: "有不辣的餐點嗎？" },
+  { cat: "餐廳", jp: "卵アレルギーがあります。", reading: "たまごあれるぎーが あります。", zh: "我對蛋過敏。" },
+  { cat: "餐廳", jp: "お水をください。", reading: "おみずを ください。", zh: "請給我水。" },
+  { cat: "餐廳", jp: "これは何ですか？", reading: "これは なんですか？", zh: "這是什麼？" },
+
   { cat: "緊急狀況", jp: "道に迷いました。", reading: "みちに まよいました。", zh: "我迷路了。" },
   { cat: "緊急狀況", jp: "事故にあいました。助けてください。", reading: "じこに あいました。たすけてください。", zh: "我發生事故了，請幫忙。" },
   { cat: "緊急狀況", jp: "救急車を呼んでください。", reading: "きゅうきゅうしゃを よんでください。", zh: "請叫救護車。" },
+  { cat: "緊急狀況", jp: "警察を呼んでください。", reading: "けいさつを よんでください。", zh: "請叫警察。" },
+  { cat: "緊急狀況", jp: "パスポートをなくしました。", reading: "ぱすぽーとを なくしました。", zh: "我的護照不見了。" },
+  { cat: "緊急狀況", jp: "財布を盗まれました。", reading: "さいふを ぬすまれました。", zh: "我的錢包被偷了。" },
+  { cat: "緊急狀況", jp: "具合が悪いです、病院はどこですか？", reading: "ぐあいが わるいです、びょういんは どこですか？", zh: "我不舒服，醫院在哪裡？" },
+  { cat: "緊急狀況", jp: "英語を話せる人はいますか？", reading: "えいごを はなせる ひとは いますか？", zh: "有人會說英文嗎？" },
 ];
+
 const EN_PHRASES = [
   { cat: "住宿", jp: "I have a reservation under my name.", reading: "", zh: "我有以我的名字訂房。" },
   { cat: "住宿", jp: "What time is check-out?", reading: "", zh: "退房時間是幾點？" },
+  { cat: "住宿", jp: "Could I get an extra towel, please?", reading: "", zh: "可以再給我一條毛巾嗎？" },
+  { cat: "住宿", jp: "Is breakfast included?", reading: "", zh: "有包含早餐嗎？" },
+  { cat: "住宿", jp: "Can I have a late check-out?", reading: "", zh: "可以延後退房嗎？" },
+  { cat: "住宿", jp: "Do you have Wi-Fi in the room?", reading: "", zh: "房間裡有 Wi-Fi 嗎？" },
+  { cat: "住宿", jp: "Could you call a taxi for me, please?", reading: "", zh: "可以幫我叫計程車嗎？" },
+  { cat: "住宿", jp: "Is there a safe in the room?", reading: "", zh: "房間裡有保險箱嗎？" },
+
   { cat: "餐廳", jp: "Could I see the menu, please?", reading: "", zh: "可以給我菜單嗎？" },
   { cat: "餐廳", jp: "Check, please.", reading: "", zh: "請幫我結帳。" },
+  { cat: "餐廳", jp: "Do you have a table for two?", reading: "", zh: "有兩人的位子嗎？" },
+  { cat: "餐廳", jp: "What do you recommend?", reading: "", zh: "有什麼推薦的嗎？" },
+  { cat: "餐廳", jp: "Could I get this to go?", reading: "", zh: "可以外帶嗎？" },
+  { cat: "餐廳", jp: "Is this dish spicy?", reading: "", zh: "這道菜辣嗎？" },
+  { cat: "餐廳", jp: "Could we get some water, please?", reading: "", zh: "可以給我們一些水嗎？" },
+  { cat: "餐廳", jp: "Do you have any vegetarian options?", reading: "", zh: "有素食選項嗎？" },
+
   { cat: "問路", jp: "How do I get to the nearest train station?", reading: "", zh: "最近的車站怎麼走？" },
   { cat: "問路", jp: "Is it within walking distance?", reading: "", zh: "用走的到得了嗎？" },
+  { cat: "問路", jp: "Excuse me, could you show me on the map?", reading: "", zh: "不好意思，可以在地圖上指給我看嗎？" },
+  { cat: "問路", jp: "How long does it take to get there?", reading: "", zh: "到那裡要多久？" },
+  { cat: "問路", jp: "Which platform do I need for this train?", reading: "", zh: "這班車要在哪個月台搭？" },
+  { cat: "問路", jp: "Is this the right way to the city center?", reading: "", zh: "這樣走去市中心對嗎？" },
+  { cat: "問路", jp: "Where is the nearest restroom?", reading: "", zh: "最近的洗手間在哪裡？" },
+  { cat: "問路", jp: "Excuse me, I think I'm lost.", reading: "", zh: "不好意思，我好像迷路了。" },
+
   { cat: "購物", jp: "How much is this?", reading: "", zh: "這個多少錢？" },
   { cat: "購物", jp: "Do you accept credit cards?", reading: "", zh: "可以刷卡嗎？" },
+  { cat: "購物", jp: "Can I try this on?", reading: "", zh: "可以試穿嗎？" },
+  { cat: "購物", jp: "Do you have this in a different size?", reading: "", zh: "有其他尺寸嗎？" },
+  { cat: "購物", jp: "Is tax included in the price?", reading: "", zh: "價格有含稅嗎？" },
+  { cat: "購物", jp: "Can I get a tax refund here?", reading: "", zh: "這裡可以退稅嗎？" },
+  { cat: "購物", jp: "Could I get a bag for this?", reading: "", zh: "可以給我一個袋子嗎？" },
+  { cat: "購物", jp: "Can I return this if it doesn't fit?", reading: "", zh: "如果不合適可以退換嗎？" },
+
   { cat: "緊急狀況", jp: "I need help, please.", reading: "", zh: "我需要幫忙。" },
   { cat: "緊急狀況", jp: "Please call an ambulance.", reading: "", zh: "請叫救護車。" },
   { cat: "緊急狀況", jp: "I lost my passport.", reading: "", zh: "我的護照遺失了。" },
+  { cat: "緊急狀況", jp: "Please call the police.", reading: "", zh: "請叫警察。" },
+  { cat: "緊急狀況", jp: "My wallet was stolen.", reading: "", zh: "我的錢包被偷了。" },
+  { cat: "緊急狀況", jp: "I don't feel well, where's the nearest hospital?", reading: "", zh: "我不舒服，最近的醫院在哪裡？" },
+  { cat: "緊急狀況", jp: "Is there anyone who speaks English?", reading: "", zh: "有人會說英文嗎？" },
+  { cat: "緊急狀況", jp: "Could you help me contact my embassy?", reading: "", zh: "可以幫我聯絡大使館嗎？" },
 ];
 function basePhrasesFor(trip) { return trip.country === "日本" ? JP_PHRASES : EN_PHRASES; }
 function basePhrasesLabel(trip) { return trip.country === "日本" ? "常用日文例句" : "常用英文例句（多數地區通用）"; }
@@ -275,18 +343,10 @@ function mapUrlForPlace(name, placeId) {
   if (placeId) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}&query_place_id=${encodeURIComponent(placeId)}`;
   return mapUrl(name);
 }
-function formatDateDisplay(iso) {
-  if (!iso) return "";
-  const d = new Date(iso + "T00:00:00");
-  if (isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("zh-TW", { month: "numeric", day: "numeric", weekday: "short" });
-}
 
 /* ===================== 深色模式 ===================== */
 function getTheme() { return localStorage.getItem(THEME_STORAGE) || "light"; }
-function applyTheme(theme) {
-  document.documentElement.setAttribute("data-theme", theme === "dark" ? "dark" : "light");
-}
+function applyTheme(theme) { document.documentElement.setAttribute("data-theme", theme === "dark" ? "dark" : "light"); }
 function toggleTheme() {
   const next = getTheme() === "dark" ? "light" : "dark";
   localStorage.setItem(THEME_STORAGE, next);
@@ -334,7 +394,7 @@ function openGlobalSettings() {
   openModal(`
     <h3>🔑 地點搜尋設定</h3>
     <p style="font-size:12.5px;color:var(--ink-soft);line-height:1.6;margin-top:-6px;">
-      填入 Google Maps API 金鑰後，新增景點/行程點/住宿時可以直接搜尋真實地標，自動帶入正確地址與地圖連結。
+      填入 Google Maps API 金鑰後，新增行程點/住宿時可以直接搜尋真實地標，自動帶入正確地址與地圖連結。
       沒有金鑰也完全不影響使用，只是要自己手動輸入地名。金鑰只會存在你這台裝置的瀏覽器裡。
     </p>
     <div class="field"><label>Google Maps API 金鑰</label><input id="f-key" value="${escapeHtml(key)}" placeholder="貼上你的 API 金鑰" /></div>
@@ -365,15 +425,13 @@ async function geocodeCity(city) {
 async function fetchWeatherForTrip() {
   const trip = currentTrip();
   const status = $("#weatherStatus");
-  if (!trip.weatherCity) { if (status) status.textContent = "請先在設定填入城市名稱。"; return; }
+  if (!trip.weatherCity) { if (status) status.textContent = "請先填入城市名稱。"; return; }
   if (status) status.textContent = "查詢中...";
   try {
     const loc = await geocodeCity(trip.weatherCity);
     const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`);
     const data = await res.json();
-    const days = data.daily.time.map((date, i) => ({
-      date, code: data.daily.weathercode[i], tmax: data.daily.temperature_2m_max[i], tmin: data.daily.temperature_2m_min[i],
-    }));
+    const days = data.daily.time.map((date, i) => ({ date, code: data.daily.weathercode[i], tmax: data.daily.temperature_2m_max[i], tmin: data.daily.temperature_2m_min[i] }));
     trip.weatherCache = { city: loc.label, fetchedAt: Date.now(), days };
     saveJournal();
     if (status) status.textContent = `已更新（${loc.label}）`;
@@ -435,19 +493,15 @@ function switchScreen(name) {
   $all(".screen").forEach((s) => s.classList.remove("active"));
   $(`#screen-${name}`).classList.add("active");
 }
-
 function goHome() {
   appState.screen = "home";
   appState.tripId = null;
   switchScreen("home");
   renderHome();
 }
-
 function openTrip(id) {
   appState.screen = "trip";
   appState.tripId = id;
-  spotFilter = "all";
-  spotTagFilter = "all";
   phraseFilter = "全部";
   currentDayIdx = 0;
   itineraryMode = "full";
@@ -455,18 +509,13 @@ function openTrip(id) {
   switchScreen("trip");
   switchView("days");
   renderTripHeader();
-  renderSpots();
   renderDaysView();
-  renderPacking();
   renderExpenses();
   renderPhrases();
-  renderNotes();
   renderLogistics();
   renderSettings();
   const trip = currentTrip();
-  if (trip.weatherCity && (!trip.weatherCache || Date.now() - trip.weatherCache.fetchedAt > 6 * 3600 * 1000)) {
-    fetchWeatherForTrip();
-  }
+  if (trip.weatherCity && (!trip.weatherCache || Date.now() - trip.weatherCache.fetchedAt > 6 * 3600 * 1000)) fetchWeatherForTrip();
 }
 
 /* ===================== 首頁：旅遊列表 ===================== */
@@ -478,32 +527,25 @@ function renderHome() {
     list.appendChild(el(`<div class="empty-hint">還沒有任何旅遊紀錄，點上方「＋ 新增一趟旅遊」開始第一本手冊吧！</div>`));
     return;
   }
-  JOURNAL.trips
-    .slice()
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .forEach((trip) => {
-      const spotCount = trip.spots.length;
-      const stopCount = trip.days.reduce((s, d) => s + d.stops.length, 0);
-      const card = el(`
-        <div class="trip-card-wrap">
-          <button class="trip-card">
-            <div class="trip-card__strip"></div>
-            <div class="trip-card__body">
-              <p class="trip-card__title">${trip.flag || "🌍"} ${escapeHtml(trip.title)}</p>
-              <p class="trip-card__meta">${escapeHtml(trip.country || "")} · ${trip.dayCount}天${Math.max(trip.dayCount - 1, 0)}夜 · ${escapeHtml(trip.transport || "")}${trip.dateRange ? " · " + escapeHtml(trip.dateRange) : ""}</p>
-              <div class="trip-card__stats">
-                <span>📍 ${spotCount} 個景點</span>
-                <span>🛣️ ${stopCount} 個行程點</span>
-              </div>
-            </div>
-          </button>
-          <button class="trip-card__menu" data-menu title="更多">⋯</button>
-        </div>
-      `);
-      card.querySelector(".trip-card").addEventListener("click", () => openTrip(trip.id));
-      card.querySelector("[data-menu]").addEventListener("click", (e) => { e.stopPropagation(); openTripActionSheet(trip); });
-      list.appendChild(card);
-    });
+  JOURNAL.trips.slice().sort((a, b) => b.createdAt - a.createdAt).forEach((trip) => {
+    const stopCount = trip.days.reduce((s, d) => s + d.stops.length, 0);
+    const card = el(`
+      <div class="trip-card-wrap">
+        <button class="trip-card">
+          <div class="trip-card__strip"></div>
+          <div class="trip-card__body">
+            <p class="trip-card__title">${trip.flag || "🌍"} ${escapeHtml(trip.title)}</p>
+            <p class="trip-card__meta">${escapeHtml(trip.country || "")} · ${trip.dayCount}天${Math.max(trip.dayCount - 1, 0)}夜 · ${escapeHtml(trip.transport || "")}${trip.dateRange ? " · " + escapeHtml(trip.dateRange) : ""}</p>
+            <div class="trip-card__stats"><span>🛣️ ${stopCount} 個行程點</span></div>
+          </div>
+        </button>
+        <button class="trip-card__menu" data-menu title="更多">⋯</button>
+      </div>
+    `);
+    card.querySelector(".trip-card").addEventListener("click", () => openTrip(trip.id));
+    card.querySelector("[data-menu]").addEventListener("click", (e) => { e.stopPropagation(); openTripActionSheet(trip); });
+    list.appendChild(card);
+  });
 }
 
 function openTripActionSheet(trip) {
@@ -514,17 +556,13 @@ function openTripActionSheet(trip) {
       <button class="btn btn--ghost btn--block" data-act="dup-template">📋 複製為範本（清空行程與花費）</button>
       <button class="btn btn--ghost btn--block" data-act="export">📤 匯出成檔案</button>
     </div>
-    <div class="modal-actions">
-      <button class="btn btn--ghost" data-cancel>關閉</button>
-    </div>
+    <div class="modal-actions"><button class="btn btn--ghost" data-cancel>關閉</button></div>
   `, (root) => {
     root.querySelector('[data-act="dup-full"]').addEventListener("click", () => {
-      const copy = duplicateTrip(trip, "full");
-      JOURNAL.trips.push(copy); saveJournal(); closeModal(); openTrip(copy.id);
+      const copy = duplicateTrip(trip, "full"); JOURNAL.trips.push(copy); saveJournal(); closeModal(); openTrip(copy.id);
     });
     root.querySelector('[data-act="dup-template"]').addEventListener("click", () => {
-      const copy = duplicateTrip(trip, "template");
-      JOURNAL.trips.push(copy); saveJournal(); closeModal(); openTrip(copy.id);
+      const copy = duplicateTrip(trip, "template"); JOURNAL.trips.push(copy); saveJournal(); closeModal(); openTrip(copy.id);
     });
     root.querySelector('[data-act="export"]').addEventListener("click", () => { exportTrip(trip); closeModal(); });
   });
@@ -534,33 +572,23 @@ function exportTrip(trip) {
   const blob = new Blob([JSON.stringify(trip, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
-  a.download = `${trip.title.replace(/[\\/:*?"<>|]/g, "")}.tripjson.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  a.href = url; a.download = `${trip.title.replace(/[\\/:*?"<>|]/g, "")}.tripjson.json`;
+  document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
-
 function importTripFile() {
   const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "application/json,.json";
+  input.type = "file"; input.accept = "application/json,.json";
   input.addEventListener("change", () => {
     const file = input.files && input.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const data = JSON.parse(reader.result);
-        const trip = normalizeImportedTrip(data);
-        JOURNAL.trips.push(trip);
-        saveJournal();
-        renderHome();
+        const trip = normalizeImportedTrip(JSON.parse(reader.result));
+        JOURNAL.trips.push(trip); saveJournal(); renderHome();
         alert(`已匯入「${trip.title}」`);
-      } catch (e) {
-        alert("匯入失敗，檔案格式不正確。請確認是從本手冊匯出的旅遊檔案。");
-      }
+      } catch (e) { alert("匯入失敗，檔案格式不正確。請確認是從本手冊匯出的旅遊檔案。"); }
     };
     reader.readAsText(file);
   });
@@ -574,9 +602,7 @@ function normalizeImportedTrip(data) {
 }
 
 function countryOptionsHtml(selected) {
-  const opts = COUNTRY_CURRENCY.map((c) =>
-    `<option value="${escapeHtml(c.country)}" ${c.country===selected?"selected":""}>${c.flag} ${escapeHtml(c.country)}（${c.code}）</option>`
-  ).join("");
+  const opts = COUNTRY_CURRENCY.map((c) => `<option value="${escapeHtml(c.country)}" ${c.country===selected?"selected":""}>${c.flag} ${escapeHtml(c.country)}（${c.code}）</option>`).join("");
   return opts + `<option value="__custom" ${selected==="__custom"?"selected":""}>🌍 其他（自訂）</option>`;
 }
 
@@ -598,35 +624,30 @@ function openTripForm() {
         <label><input type="radio" name="transport" value="兩者都有" /><span>都有</span></label>
       </div>
     </div>
-    <div class="field"><label>日期（選填，純文字說明用）</label><input id="f-date" placeholder="例如：2026/08/29 - 09/03" /></div>
-    <div class="field"><label>天數</label><input id="f-days" type="number" min="1" max="30" value="6" /></div>
+    <div class="settings-row">
+      <div class="field"><label>出發日期（選填）</label><input id="f-start-date" type="date" /></div>
+      <div class="field"><label>天數</label><input id="f-days" type="number" min="1" max="30" value="6" /></div>
+    </div>
+    <p class="field-hint" style="margin-top:-8px;">填了出發日期，每天的行程日期會自動排好，不用再逐天設定。</p>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>取消</button>
       <button class="btn btn--primary" data-save>建立並開始規劃</button>
     </div>
   `, (root) => {
-    root.querySelector("#f-country").addEventListener("change", (e) => {
-      root.querySelector("#f-custom-wrap").style.display = e.target.value === "__custom" ? "block" : "none";
-    });
+    root.querySelector("#f-country").addEventListener("change", (e) => { root.querySelector("#f-custom-wrap").style.display = e.target.value === "__custom" ? "block" : "none"; });
     root.querySelector("[data-save]").addEventListener("click", () => {
       const title = root.querySelector("#f-title").value.trim();
       if (!title) return;
       const countryVal = root.querySelector("#f-country").value;
       let countryEntry;
-      if (countryVal === "__custom") {
-        countryEntry = { ...CUSTOM_COUNTRY, code: root.querySelector("#f-cur-code").value.trim() || "", symbol: root.querySelector("#f-cur-symbol").value.trim() || "" };
-      } else {
-        countryEntry = findCountryEntry(countryVal) || CUSTOM_COUNTRY;
-      }
+      if (countryVal === "__custom") countryEntry = { ...CUSTOM_COUNTRY, code: root.querySelector("#f-cur-code").value.trim() || "", symbol: root.querySelector("#f-cur-symbol").value.trim() || "" };
+      else countryEntry = findCountryEntry(countryVal) || CUSTOM_COUNTRY;
       const trip = newTrip({
-        title, dateRange: root.querySelector("#f-date").value.trim(),
+        title, startDate: root.querySelector("#f-start-date").value,
         dayCount: root.querySelector("#f-days").value, countryEntry,
         transport: root.querySelector('input[name="transport"]:checked').value,
       });
-      JOURNAL.trips.push(trip);
-      saveJournal();
-      closeModal();
-      openTrip(trip.id);
+      JOURNAL.trips.push(trip); saveJournal(); closeModal(); openTrip(trip.id);
     });
   });
 }
@@ -638,26 +659,22 @@ function renderTripHeader() {
   $("#tripTitle").textContent = trip.title;
   $("#tripDateRange").textContent = trip.dateRange || "點此設定日期";
   $("#tripDaysLabel").textContent = `${trip.flag || ""} ${trip.country} · ${trip.dayCount}天${Math.max(trip.dayCount - 1, 0)}夜・${trip.transport}`;
-
   $("#tripTitle").onblur = () => { const t = currentTrip(); t.title = $("#tripTitle").textContent.trim() || "未命名旅遊"; saveJournal(); };
   $("#tripDateRange").onblur = () => {
     const t = currentTrip();
     const v = $("#tripDateRange").textContent.trim();
     t.dateRange = v === "點此設定日期" ? "" : v;
-    saveJournal();
-    updateCountdown();
+    saveJournal(); updateCountdown();
   };
   updateCountdown();
 }
-
 function updateCountdown() {
   const trip = currentTrip();
   const cd = $("#countdown");
   const match = (trip?.dateRange || "").match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
   if (!match) { cd.textContent = "設定日期看倒數"; return; }
   const target = new Date(+match[1], +match[2] - 1, +match[3]);
-  const now = new Date();
-  now.setHours(0,0,0,0);
+  const now = new Date(); now.setHours(0,0,0,0);
   const diff = Math.round((target - now) / 86400000);
   if (diff > 0) cd.textContent = `${diff} 天後出發`;
   else if (diff === 0) cd.textContent = "今天出發！";
@@ -665,158 +682,17 @@ function updateCountdown() {
 }
 
 /* ===================== Tab 切換（旅遊內頁） ===================== */
-function initTabbar() {
-  $all(".tabbar__btn").forEach((btn) => { btn.addEventListener("click", () => switchView(btn.dataset.view)); });
-}
+function initTabbar() { $all(".tabbar__btn").forEach((btn) => btn.addEventListener("click", () => switchView(btn.dataset.view))); }
 function switchView(name) {
   $all(".view").forEach((v) => v.classList.remove("active"));
   $(`#view-${name}`).classList.add("active");
   $all(".tabbar__btn").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
 }
 
-/* ===================== 景點 ===================== */
-let spotFilter = "all";
-let spotTagFilter = "all";
-function renderSpots() {
-  const trip = currentTrip();
-  if (!trip) return;
-  const dayOptions = ["all", "備選", ...trip.days.map((d) => d.label)];
-  const filterBar = $("#spotFilters");
-  filterBar.innerHTML = "";
-  dayOptions.forEach((opt) => {
-    const chip = el(`<button class="chip ${spotFilter===opt?"active":""}">${opt==="all"?"全部":opt}</button>`);
-    chip.addEventListener("click", () => { spotFilter = opt; renderSpots(); });
-    filterBar.appendChild(chip);
-  });
-
-  const tagBar = $("#spotTagFilters");
-  tagBar.innerHTML = "";
-  ["all", ...SPOT_TAGS].forEach((tag) => {
-    const chip = el(`<button class="chip ${spotTagFilter===tag?"active":""}">${tag==="all"?"全部標籤":tag}</button>`);
-    chip.addEventListener("click", () => { spotTagFilter = tag; renderSpots(); });
-    tagBar.appendChild(chip);
-  });
-
-  const list = $("#spotList");
-  list.innerHTML = "";
-  const filtered = trip.spots.filter((s) => {
-    const dayOk = spotFilter === "all" || s.day === spotFilter;
-    const tagOk = spotTagFilter === "all" || (s.tags || []).includes(spotTagFilter);
-    return dayOk && tagOk;
-  });
-  if (!filtered.length) {
-    list.appendChild(el(`<div class="empty-hint">還沒有符合條件的景點，先點上方「＋ 新增景點」加入你想去的地方吧！</div>`));
-    return;
-  }
-  filtered.forEach((s) => {
-    const tagPills = (s.tags || []).map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join("");
-    const card = el(`
-      <div class="card spot-card">
-        <div class="spot-card__badge ${s.priority === "必去" ? "must" : "maybe"}">${s.priority}</div>
-        <div class="spot-card__body">
-          <p class="spot-card__name">${escapeHtml(s.name)}</p>
-          <p class="spot-card__meta">${escapeHtml(s.day || "尚未排定")}${s.address ? " · " + escapeHtml(s.address) : ""}</p>
-          ${tagPills ? `<div class="tag-pill-row">${tagPills}</div>` : ""}
-          ${s.note ? `<p class="spot-card__note">${escapeHtml(s.note)}</p>` : ""}
-          <div class="spot-card__actions">
-            <a class="map-link" target="_blank" rel="noopener" href="${mapUrlForPlace(s.name, s.placeId)}">在地圖開啟 ↗</a>
-            <button class="btn btn--small btn--outline" data-quickadd>＋ 排入行程</button>
-            <button class="btn btn--danger" data-del>刪除</button>
-          </div>
-        </div>
-      </div>
-    `);
-    card.querySelector("[data-del]").addEventListener("click", () => {
-      trip.spots = trip.spots.filter((x) => x.id !== s.id);
-      saveJournal(); renderSpots();
-    });
-    card.querySelector("[data-quickadd]").addEventListener("click", () => openQuickAddToItinerary(s));
-    list.appendChild(card);
-  });
-}
-
-function openQuickAddToItinerary(spot) {
-  const trip = currentTrip();
-  const dayOpts = trip.days.map((d, i) => `<option value="${i}">${escapeHtml(d.label)}${d.date ? "（"+formatDateDisplay(d.date)+"）" : ""}</option>`).join("");
-  openModal(`
-    <h3>把「${escapeHtml(spot.name)}」排入行程</h3>
-    <div class="field"><label>選擇日期</label><select id="f-dayidx">${dayOpts}</select></div>
-    <div class="field"><label>時間（選填）</label><input id="f-time" placeholder="例如 10:00" /></div>
-    <div class="modal-actions">
-      <button class="btn btn--ghost" data-cancel>取消</button>
-      <button class="btn btn--primary" data-save>加入行程</button>
-    </div>
-  `, (root) => {
-    root.querySelector("[data-save]").addEventListener("click", () => {
-      const idx = Number(root.querySelector("#f-dayidx").value);
-      const day = trip.days[idx];
-      if (!day) return;
-      day.stops.push({
-        id: uid(), time: root.querySelector("#f-time").value.trim(), name: spot.name,
-        drive: "", note: spot.note || "", placeId: spot.placeId || null, address: spot.address || "",
-      });
-      saveJournal();
-      renderDaysView();
-      closeModal();
-    });
-  });
-}
-
-function openSpotForm() {
-  const trip = currentTrip();
-  const dayOpts = trip.days.map((d) => `<option value="${d.label}">${d.label}</option>`).join("");
-  const tagChecks = SPOT_TAGS.map((t) => `<label class="tag-check"><input type="checkbox" value="${t}" /><span>${t}</span></label>`).join("");
-  let placeData = null;
-  openModal(`
-    <h3>新增景點</h3>
-    <div class="field">
-      <label>名稱</label>
-      <input id="f-name" placeholder="例如：白川鄉合掌村" autocomplete="off" />
-      <p class="field-hint" id="place-hint"></p>
-    </div>
-    <div class="field"><label>優先度</label>
-      <div class="radio-row">
-        <label><input type="radio" name="pri" value="必去" checked /><span>必去</span></label>
-        <label><input type="radio" name="pri" value="備選" /><span>備選</span></label>
-      </div>
-    </div>
-    <div class="field"><label>安排在</label>
-      <select id="f-day"><option value="">尚未排定</option>${dayOpts}<option value="備選">備選清單</option></select>
-    </div>
-    <div class="field"><label>標籤（可複選）</label><div class="tag-check-row">${tagChecks}</div></div>
-    <div class="field"><label>備註</label><textarea id="f-note" placeholder="營業時間、門票、小提醒..."></textarea></div>
-    <div class="modal-actions">
-      <button class="btn btn--ghost" data-cancel>取消</button>
-      <button class="btn btn--primary" data-save>儲存</button>
-    </div>
-  `, (root) => {
-    const nameInput = root.querySelector("#f-name");
-    if (getApiKey()) {
-      root.querySelector("#place-hint").textContent = "輸入關鍵字可搜尋真實地標";
-      tryAttachPlacesAutocomplete(nameInput, (place) => {
-        placeData = { placeId: place.place_id, address: place.formatted_address || "" };
-        nameInput.value = place.name || nameInput.value;
-        root.querySelector("#place-hint").textContent = "✓ 已鎖定地標：" + (place.formatted_address || "");
-      });
-    }
-    root.querySelector("[data-save]").addEventListener("click", () => {
-      const name = nameInput.value.trim();
-      if (!name) return;
-      const tags = $all('.tag-check input[type="checkbox"]:checked', root).map((cb) => cb.value);
-      trip.spots.push({
-        id: uid(), name, priority: root.querySelector('input[name="pri"]:checked').value,
-        day: root.querySelector("#f-day").value, tags, note: root.querySelector("#f-note").value.trim(),
-        placeId: placeData?.placeId || null, address: placeData?.address || "",
-      });
-      saveJournal(); renderSpots(); closeModal();
-    });
-  });
-}
-
-/* ===================== 每日行程（整合航班/住宿/交通 + 拖曳排序）===================== */
+/* ===================== 每日行程（整合航班/住宿/交通 + 拖曳排序 + 標籤）===================== */
 let currentDayIdx = 0;
 let daySortableInstance = null;
-let itineraryMode = "full"; // "daily" | "full" — 進入旅遊時預設為整合總覽
+let itineraryMode = "full";
 
 function renderDaysView() {
   const modeBar = $("#itineraryModeBar");
@@ -826,14 +702,8 @@ function renderDaysView() {
     chip.addEventListener("click", () => { itineraryMode = mode; renderDaysView(); });
     modeBar.appendChild(chip);
   });
-
-  if (itineraryMode === "daily") {
-    $("#dayTabs").style.display = "";
-    renderSingleDay();
-  } else {
-    $("#dayTabs").style.display = "none";
-    renderFullItinerary();
-  }
+  if (itineraryMode === "daily") { $("#dayTabs").style.display = ""; renderSingleDay(); }
+  else { $("#dayTabs").style.display = "none"; renderFullItinerary(); }
 }
 
 function renderSingleDay() {
@@ -856,21 +726,11 @@ function renderSingleDay() {
   const editRow = el(`
     <div class="day-editable-row">
       <input id="dayLabel" value="${escapeHtml(day.label)}" placeholder="Day 1" />
-      <input id="dayDate" type="date" value="${escapeHtml(day.date && /^\d{4}-\d{2}-\d{2}$/.test(day.date) ? day.date : "")}" />
+      <span class="day-date-badge">${day.date ? formatDateDisplay(day.date) : "未設定日期"}</span>
     </div>
   `);
   editRow.querySelector("#dayLabel").addEventListener("change", (e) => { day.label = e.target.value || day.label; saveJournal(); renderSingleDay(); });
-  editRow.querySelector("#dayDate").addEventListener("change", (e) => { day.date = e.target.value; saveJournal(); renderSingleDay(); });
   road.appendChild(editRow);
-
-  const journalBox = el(`
-    <div class="field journal-field">
-      <label>📝 這天的心得/遊記（選填）</label>
-      <textarea id="dayJournal" placeholder="回來後可以在這裡記錄這天發生的事、想法或推薦...">${escapeHtml(day.journal || "")}</textarea>
-    </div>
-  `);
-  journalBox.querySelector("#dayJournal").addEventListener("change", (e) => { day.journal = e.target.value; saveJournal(); });
-  road.appendChild(journalBox);
 
   const roadInner = el(`<div class="road"></div>`);
   if (!day.stops.length) {
@@ -879,6 +739,7 @@ function renderSingleDay() {
   } else {
     day.stops.forEach((stop, idx) => {
       if (idx > 0 && stop.drive) roadInner.appendChild(el(`<div class="drive-chip">🚗 車程約 ${escapeHtml(stop.drive)}</div>`));
+      const tagPills = (stop.tags || []).map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join("");
       const card = el(`
         <div class="road-stop" data-stop-id="${stop.id}">
           <div class="card">
@@ -887,6 +748,7 @@ function renderSingleDay() {
               ${stop.time ? `<span class="stop-time">${escapeHtml(stop.time)}</span>` : ""}
             </div>
             <p class="stop-name">${escapeHtml(stop.name)}</p>
+            ${tagPills ? `<div class="tag-pill-row">${tagPills}</div>` : ""}
             ${stop.address ? `<p class="stop-note">${escapeHtml(stop.address)}</p>` : ""}
             ${stop.note ? `<p class="stop-note">${escapeHtml(stop.note)}</p>` : ""}
             <div class="spot-card__actions" style="margin-top:8px;">
@@ -957,11 +819,13 @@ function renderFullItinerary() {
       const inner = el(`<div class="road"></div>`);
       day.stops.forEach((stop, idx) => {
         if (idx > 0 && stop.drive) inner.appendChild(el(`<div class="drive-chip">🚗 車程約 ${escapeHtml(stop.drive)}</div>`));
+        const tagPills = (stop.tags || []).map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join("");
         inner.appendChild(el(`
           <div class="road-stop">
             <div class="card">
               ${stop.time ? `<span class="stop-time">${escapeHtml(stop.time)}</span>` : ""}
               <p class="stop-name">${escapeHtml(stop.name)}</p>
+              ${tagPills ? `<div class="tag-pill-row">${tagPills}</div>` : ""}
               ${stop.note ? `<p class="stop-note">${escapeHtml(stop.note)}</p>` : ""}
             </div>
           </div>
@@ -973,9 +837,7 @@ function renderFullItinerary() {
     road.appendChild(section);
   });
 
-  if (!trip.weatherCity) {
-    road.appendChild(el(`<div class="empty-hint">想在這裡看到每天的天氣預報嗎？到 ⚙️ 設定填入查詢城市即可。</div>`));
-  }
+  if (!trip.weatherCity) road.appendChild(el(`<div class="empty-hint">想在這裡看到每天的天氣預報嗎？到 ⚙️ 設定填入查詢城市即可。</div>`));
 }
 
 function syncStopOrderFromDOM(day, container) {
@@ -987,6 +849,7 @@ function syncStopOrderFromDOM(day, container) {
 
 function openStopForm(day) {
   let placeData = null;
+  const tagChecks = STOP_TAGS.map((t) => `<label class="tag-check"><input type="checkbox" value="${t}" /><span>${t}</span></label>`).join("");
   openModal(`
     <h3>新增行程點 — ${escapeHtml(day.label)}</h3>
     <div class="field"><label>時間（選填，僅顯示用）</label><input id="f-time" placeholder="例如 09:30" /></div>
@@ -995,8 +858,9 @@ function openStopForm(day) {
       <input id="f-name" placeholder="例如：新穗高纜車" autocomplete="off" />
       <p class="field-hint" id="place-hint"></p>
     </div>
+    <div class="field"><label>標籤（可複選，選填）</label><div class="tag-check-row">${tagChecks}</div></div>
     <div class="field"><label>與前一站的車程（選填）</label><input id="f-drive" placeholder="例如 45分" /></div>
-    <div class="field"><label>備註</label><textarea id="f-note" placeholder="停留時間、注意事項..."></textarea></div>
+    <div class="field"><label>備註</label><textarea id="f-note" placeholder="營業時間、門票、注意事項..."></textarea></div>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>取消</button>
       <button class="btn btn--primary" data-save>儲存</button>
@@ -1014,67 +878,13 @@ function openStopForm(day) {
     root.querySelector("[data-save]").addEventListener("click", () => {
       const name = nameInput.value.trim();
       if (!name) return;
+      const tags = $all('.tag-check input[type="checkbox"]:checked', root).map((cb) => cb.value);
       day.stops.push({
-        id: uid(), time: root.querySelector("#f-time").value.trim(), name,
+        id: uid(), time: root.querySelector("#f-time").value.trim(), name, tags,
         drive: root.querySelector("#f-drive").value.trim(), note: root.querySelector("#f-note").value.trim(),
         placeId: placeData?.placeId || null, address: placeData?.address || "",
       });
       saveJournal(); renderDaysView(); closeModal();
-    });
-  });
-}
-
-/* ===================== 準備清單 ===================== */
-function renderPacking() {
-  const trip = currentTrip();
-  if (!trip) return;
-  const wrap = $("#packingList");
-  wrap.innerHTML = "";
-  let total = 0, done = 0;
-  trip.packing.forEach((group) => {
-    wrap.appendChild(el(`<div class="pack-group__title">${escapeHtml(group.category)}</div>`));
-    group.items.forEach((item) => {
-      total++; if (item.done) done++;
-      const row = el(`
-        <label class="card pack-item ${item.done ? "done" : ""}">
-          <input type="checkbox" ${item.done ? "checked" : ""} />
-          <span>${escapeHtml(item.text)}</span>
-          <button class="btn btn--danger" data-del>刪除</button>
-        </label>
-      `);
-      row.querySelector('input[type="checkbox"]').addEventListener("change", (e) => { item.done = e.target.checked; saveJournal(); renderPacking(); });
-      row.querySelector("[data-del]").addEventListener("click", (e) => { e.preventDefault(); group.items = group.items.filter((x) => x.id !== item.id); saveJournal(); renderPacking(); });
-      wrap.appendChild(row);
-    });
-  });
-  $("#packingProgress").textContent = `${done}/${total}`;
-}
-
-function openPackingForm() {
-  const trip = currentTrip();
-  const catOpts = trip.packing.map((g) => `<option value="${escapeHtml(g.category)}">${escapeHtml(g.category)}</option>`).join("");
-  openModal(`
-    <h3>新增準備項目</h3>
-    <div class="field"><label>項目內容</label><input id="f-text" placeholder="例如：轉接頭" /></div>
-    <div class="field"><label>分類</label><select id="f-cat">${catOpts}<option value="__new">＋ 建立新分類</option></select></div>
-    <div class="field" id="f-newcat-wrap" style="display:none;"><label>新分類名稱</label><input id="f-newcat" placeholder="例如：其他" /></div>
-    <div class="modal-actions">
-      <button class="btn btn--ghost" data-cancel>取消</button>
-      <button class="btn btn--primary" data-save>儲存</button>
-    </div>
-  `, (root) => {
-    root.querySelector("#f-cat").addEventListener("change", (e) => { root.querySelector("#f-newcat-wrap").style.display = e.target.value === "__new" ? "block" : "none"; });
-    root.querySelector("[data-save]").addEventListener("click", () => {
-      const text = root.querySelector("#f-text").value.trim();
-      if (!text) return;
-      let catVal = root.querySelector("#f-cat").value;
-      if (catVal === "__new") {
-        catVal = root.querySelector("#f-newcat").value.trim() || "其他";
-        if (!trip.packing.find((g) => g.category === catVal)) trip.packing.push({ category: catVal, items: [] });
-      }
-      const group = trip.packing.find((g) => g.category === catVal);
-      group.items.push({ id: uid(), text, done: false });
-      saveJournal(); renderPacking(); closeModal();
     });
   });
 }
@@ -1088,7 +898,6 @@ function budgetBarHtml(spent, budget, label) {
   const cls = over ? "over" : pct >= 0.8 ? "warn" : "ok";
   return `<div class="budget-row"><div class="budget-row__labels"><span>${escapeHtml(label)}</span><span class="${over?"budget-over-text":""}">${spent.toLocaleString()} / ${budget.toLocaleString()}</span></div><div class="budget-bar"><div class="budget-bar__fill ${cls}" style="width:${pct*100}%;"></div></div></div>`;
 }
-
 function renderExpenses() {
   const trip = currentTrip();
   if (!trip) return;
@@ -1139,7 +948,6 @@ function renderExpenses() {
     list.appendChild(row);
   });
 }
-
 function openExpenseForm() {
   const trip = currentTrip();
   const catOpts = EXPENSE_CATS.map((c) => `<option value="${c.key}">${c.icon} ${c.key}</option>`).join("");
@@ -1163,7 +971,6 @@ function openExpenseForm() {
   });
   $("#exRate").oninput = (e) => { trip.exRate = Number(e.target.value) || 0; saveJournal(); renderExpenses(); };
 }
-
 async function fetchLiveRate() {
   const trip = currentTrip();
   const code = trip.currency.code;
@@ -1178,9 +985,7 @@ async function fetchLiveRate() {
     trip.exRate = twd;
     saveJournal(); renderExpenses();
     status.textContent = `已更新：1 ${code} ≈ ${twd.toFixed(4)} TWD（${new Date().toLocaleDateString("zh-TW")}）`;
-  } catch (err) {
-    status.textContent = "查詢失敗，請確認網路連線，或手動輸入匯率。";
-  }
+  } catch (err) { status.textContent = "查詢失敗，請確認網路連線，或手動輸入匯率。"; }
 }
 
 /* ===================== 會話小抄 ===================== */
@@ -1198,7 +1003,6 @@ function renderPhrases() {
     chip.addEventListener("click", () => { phraseFilter = c; renderPhrases(); });
     bar.appendChild(chip);
   });
-
   const list = $("#phraseList");
   list.innerHTML = "";
   const baseFiltered = phraseFilter === "我的例句" ? [] : base.filter((p) => phraseFilter === "全部" || p.cat === phraseFilter);
@@ -1240,51 +1044,14 @@ function openPhraseForm() {
   });
 }
 
-/* ===================== 注意事項 ===================== */
-function renderNotes() {
-  const trip = currentTrip();
-  if (!trip) return;
-  const list = $("#noteList");
-  list.innerHTML = "";
-  trip.notes.forEach((n) => {
-    const card = el(`
-      <div class="card note-card">
-        <span class="note-card__icon">${n.icon || "📌"}</span>
-        <span class="note-card__text">${escapeHtml(n.text)}</span>
-        <button class="btn btn--danger" data-del>刪</button>
-      </div>
-    `);
-    card.querySelector("[data-del]").addEventListener("click", () => { trip.notes = trip.notes.filter((x) => x.id !== n.id); saveJournal(); renderNotes(); });
-    list.appendChild(card);
-  });
-}
-function openNoteForm() {
-  const trip = currentTrip();
-  openModal(`
-    <h3>新增提醒</h3>
-    <div class="field"><label>內容</label><textarea id="f-text" placeholder="輸入注意事項..."></textarea></div>
-    <div class="modal-actions">
-      <button class="btn btn--ghost" data-cancel>取消</button>
-      <button class="btn btn--primary" data-save>儲存</button>
-    </div>
-  `, (root) => {
-    root.querySelector("[data-save]").addEventListener("click", () => {
-      const text = root.querySelector("#f-text").value.trim();
-      if (!text) return;
-      trip.notes.push({ id: uid(), icon: "📌", text });
-      saveJournal(); renderNotes(); closeModal();
-    });
-  });
-}
-
-/* ===================== 交通住宿（航班／住宿／其他交通） ===================== */
+/* ===================== 出發前（航班／住宿／其他交通／準備） ===================== */
 let logisticsSubTab = "flights";
 function renderLogistics() {
   const trip = currentTrip();
   if (!trip) return;
   const subTabs = $("#logisticsSubTabs");
   subTabs.innerHTML = "";
-  [["flights","✈️ 航班"], ["lodging","🏨 住宿"], ["transport","🚌 其他交通"]].forEach(([key,label]) => {
+  [["flights","✈️ 航班"], ["lodging","🏨 住宿"], ["transport","🚌 交通"], ["packing","🧳 準備"]].forEach(([key,label]) => {
     const btn = el(`<button class="day-tab ${logisticsSubTab===key?"active":""}">${label}</button>`);
     btn.addEventListener("click", () => { logisticsSubTab = key; renderLogistics(); });
     subTabs.appendChild(btn);
@@ -1309,8 +1076,9 @@ function renderLogistics() {
       card.querySelector("[data-del]").addEventListener("click", () => { trip.flights = trip.flights.filter((x)=>x.id!==f.id); saveJournal(); renderLogistics(); renderDaysView(); });
       content.appendChild(card);
     });
-    content.appendChild(el(`<button class="btn btn--ghost" id="addFlightBtn">＋ 新增航班</button>`));
-    content.querySelector("#addFlightBtn").addEventListener("click", openFlightForm);
+    const addBtn = el(`<button class="btn btn--ghost">＋ 新增航班</button>`);
+    addBtn.addEventListener("click", openFlightForm);
+    content.appendChild(addBtn);
   }
 
   if (logisticsSubTab === "lodging") {
@@ -1333,8 +1101,9 @@ function renderLogistics() {
       card.querySelector("[data-del]").addEventListener("click", () => { trip.lodging = trip.lodging.filter((x)=>x.id!==l.id); saveJournal(); renderLogistics(); renderDaysView(); });
       content.appendChild(card);
     });
-    content.appendChild(el(`<button class="btn btn--ghost" id="addLodgingBtn">＋ 新增住宿</button>`));
-    content.querySelector("#addLodgingBtn").addEventListener("click", openLodgingForm);
+    const addBtn = el(`<button class="btn btn--ghost">＋ 新增住宿</button>`);
+    addBtn.addEventListener("click", openLodgingForm);
+    content.appendChild(addBtn);
   }
 
   if (logisticsSubTab === "transport") {
@@ -1353,8 +1122,35 @@ function renderLogistics() {
       card.querySelector("[data-del]").addEventListener("click", () => { trip.transportItems = trip.transportItems.filter((x)=>x.id!==t.id); saveJournal(); renderLogistics(); renderDaysView(); });
       content.appendChild(card);
     });
-    content.appendChild(el(`<button class="btn btn--ghost" id="addTransportBtn">＋ 新增交通</button>`));
-    content.querySelector("#addTransportBtn").addEventListener("click", openTransportForm);
+    const addBtn = el(`<button class="btn btn--ghost">＋ 新增交通</button>`);
+    addBtn.addEventListener("click", openTransportForm);
+    content.appendChild(addBtn);
+  }
+
+  if (logisticsSubTab === "packing") {
+    const wrap = el(`<div></div>`);
+    let total = 0, done = 0;
+    trip.packing.forEach((group) => {
+      wrap.appendChild(el(`<div class="pack-group__title">${escapeHtml(group.category)}</div>`));
+      group.items.forEach((item) => {
+        total++; if (item.done) done++;
+        const row = el(`
+          <label class="card pack-item ${item.done ? "done" : ""}">
+            <input type="checkbox" ${item.done ? "checked" : ""} />
+            <span>${escapeHtml(item.text)}</span>
+            <button class="btn btn--danger" data-del>刪除</button>
+          </label>
+        `);
+        row.querySelector('input[type="checkbox"]').addEventListener("change", (e) => { item.done = e.target.checked; saveJournal(); renderLogistics(); });
+        row.querySelector("[data-del]").addEventListener("click", (e) => { e.preventDefault(); group.items = group.items.filter((x) => x.id !== item.id); saveJournal(); renderLogistics(); });
+        wrap.appendChild(row);
+      });
+    });
+    content.appendChild(el(`<div class="view-head" style="margin-bottom:10px;"><span style="font-size:13px;font-weight:700;color:var(--ink-soft);">準備進度</span><span class="progress-pill">${done}/${total}</span></div>`));
+    content.appendChild(wrap);
+    const addBtn = el(`<button class="btn btn--ghost">＋ 新增準備項目</button>`);
+    addBtn.addEventListener("click", openPackingForm);
+    content.appendChild(addBtn);
   }
 }
 
@@ -1515,6 +1311,35 @@ function openTransportForm() {
   });
 }
 
+function openPackingForm() {
+  const trip = currentTrip();
+  const catOpts = trip.packing.map((g) => `<option value="${escapeHtml(g.category)}">${escapeHtml(g.category)}</option>`).join("");
+  openModal(`
+    <h3>新增準備項目</h3>
+    <div class="field"><label>項目內容</label><input id="f-text" placeholder="例如：轉接頭" /></div>
+    <div class="field"><label>分類</label><select id="f-cat">${catOpts}<option value="__new">＋ 建立新分類</option></select></div>
+    <div class="field" id="f-newcat-wrap" style="display:none;"><label>新分類名稱</label><input id="f-newcat" placeholder="例如：其他" /></div>
+    <div class="modal-actions">
+      <button class="btn btn--ghost" data-cancel>取消</button>
+      <button class="btn btn--primary" data-save>儲存</button>
+    </div>
+  `, (root) => {
+    root.querySelector("#f-cat").addEventListener("change", (e) => { root.querySelector("#f-newcat-wrap").style.display = e.target.value === "__new" ? "block" : "none"; });
+    root.querySelector("[data-save]").addEventListener("click", () => {
+      const text = root.querySelector("#f-text").value.trim();
+      if (!text) return;
+      let catVal = root.querySelector("#f-cat").value;
+      if (catVal === "__new") {
+        catVal = root.querySelector("#f-newcat").value.trim() || "其他";
+        if (!trip.packing.find((g) => g.category === catVal)) trip.packing.push({ category: catVal, items: [] });
+      }
+      const group = trip.packing.find((g) => g.category === catVal);
+      group.items.push({ id: uid(), text, done: false });
+      saveJournal(); renderLogistics(); closeModal();
+    });
+  });
+}
+
 /* ===================== 旅遊設定 ===================== */
 function renderSettings() {
   const trip = currentTrip();
@@ -1522,6 +1347,7 @@ function renderSettings() {
   const wrap = $("#settingsFields");
   wrap.innerHTML = "";
   const budget = trip.budget || emptyBudget();
+  const firstDayDate = trip.days[0]?.date || "";
 
   const catBudgetFields = EXPENSE_CATS.map((c) => `
     <div>
@@ -1552,8 +1378,10 @@ function renderSettings() {
         </select>
       </div>
       <div class="settings-field">
-        <label>目前天數：${trip.days.length} 天</label>
-        <button class="btn btn--ghost" id="s-add-day" style="margin-top:0;">＋ 新增一天</button>
+        <label>出發日期（套用後會依序排到每一天，目前 ${trip.days.length} 天）</label>
+        <input id="s-start-date" type="date" value="${escapeHtml(firstDayDate)}" />
+        <button class="btn btn--ghost" id="s-apply-dates" style="margin-top:6px;">套用日期到每一天</button>
+        <button class="btn btn--ghost" id="s-add-day" style="margin-top:6px;">＋ 新增一天</button>
       </div>
       <div class="settings-field">
         <label>天氣查詢城市（選填，用於整合行程表的每日天氣預報）</label>
@@ -1570,7 +1398,7 @@ function renderSettings() {
         <div class="settings-row settings-row--wrap">${catBudgetFields}</div>
       </div>
       <button class="btn btn--primary btn--block" id="s-save">儲存設定</button>
-      <p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px;">變更國家/貨幣不會刪除已建立的景點與行程，但預設清單與例句只會在新增旅遊時套用一次，之後可自行增刪。</p>
+      <p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px;">變更國家/貨幣不會刪除已建立的行程與花費，但預設清單只會在新增旅遊時套用一次，之後可自行增刪。</p>
     </div>
     <div class="card" style="margin-top:16px;">
       <button class="btn btn--ghost btn--block" id="s-export">📤 匯出這趟旅遊（存成檔案分享給別人）</button>
@@ -1580,9 +1408,20 @@ function renderSettings() {
 
   form.querySelector("#s-country").addEventListener("change", (e) => { form.querySelector("#s-custom-wrap").style.display = e.target.value === "__custom" ? "block" : "none"; });
 
+  form.querySelector("#s-apply-dates").addEventListener("click", () => {
+    const t = currentTrip();
+    const start = form.querySelector("#s-start-date").value;
+    if (!start) return;
+    t.days.forEach((d, i) => { d.date = addDaysISO(start, i); });
+    t.dateRange = `${isoToSlash(start)}-${isoToSlash(addDaysISO(start, t.days.length - 1))}`;
+    saveJournal(); renderSettings(); renderDaysView(); renderTripHeader();
+  });
+
   form.querySelector("#s-add-day").addEventListener("click", () => {
     const t = currentTrip();
-    t.days.push({ id: uid(), label: `Day ${t.days.length + 1}`, date: "", journal: "", stops: [] });
+    const last = t.days[t.days.length - 1];
+    const nextDate = last && last.date ? addDaysISO(last.date, 1) : "";
+    t.days.push({ id: uid(), label: `Day ${t.days.length + 1}`, date: nextDate, journal: "", stops: [] });
     t.dayCount = t.days.length;
     saveJournal(); renderSettings(); renderDaysView(); renderTripHeader();
   });
@@ -1644,25 +1483,16 @@ function initFormTriggers() {
     if (!btn) return;
     const type = btn.dataset.open;
     if (type === "trip-form") openTripForm();
-    if (type === "spot-form") openSpotForm();
-    if (type === "packing-form") openPackingForm();
     if (type === "expense-form") openExpenseForm();
     if (type === "phrase-form") openPhraseForm();
-    if (type === "note-form") openNoteForm();
   });
 }
 
 /* ===================== 安裝提示（讓 App 感更完整） ===================== */
 const INSTALL_DISMISS_KEY = "install-banner-dismissed";
 let deferredInstallPrompt = null;
-
-function isStandalone() {
-  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
-}
-function isIOS() {
-  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
-}
-
+function isStandalone() { return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true; }
+function isIOS() { return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream; }
 function maybeShowInstallBanner() {
   if (isStandalone()) return;
   if (localStorage.getItem(INSTALL_DISMISS_KEY)) return;
@@ -1674,24 +1504,13 @@ function maybeShowInstallBanner() {
   } else if (isIOS()) {
     $("#installBannerSub").textContent = "點下方分享按鈕 → 加入主畫面";
     $("#installBannerAction").hidden = true;
-  } else {
-    return;
-  }
+  } else { return; }
   banner.hidden = false;
 }
-
 function initInstallBanner() {
-  window.addEventListener("beforeinstallprompt", (e) => {
-    e.preventDefault();
-    deferredInstallPrompt = e;
-    maybeShowInstallBanner();
-  });
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferredInstallPrompt = e; maybeShowInstallBanner(); });
   window.addEventListener("appinstalled", () => { $("#installBanner").hidden = true; });
-
-  $("#installBannerClose").addEventListener("click", () => {
-    localStorage.setItem(INSTALL_DISMISS_KEY, "1");
-    $("#installBanner").hidden = true;
-  });
+  $("#installBannerClose").addEventListener("click", () => { localStorage.setItem(INSTALL_DISMISS_KEY, "1"); $("#installBanner").hidden = true; });
   $("#installBannerAction").addEventListener("click", async () => {
     if (!deferredInstallPrompt) return;
     deferredInstallPrompt.prompt();
@@ -1699,7 +1518,6 @@ function initInstallBanner() {
     deferredInstallPrompt = null;
     $("#installBanner").hidden = true;
   });
-
   setTimeout(maybeShowInstallBanner, 1200);
 }
 
@@ -1715,10 +1533,7 @@ function init() {
   renderHome();
 
   const params = new URLSearchParams(location.search);
-  if (params.get("action") === "new") {
-    openTripForm();
-    history.replaceState(null, "", "./");
-  }
+  if (params.get("action") === "new") { openTripForm(); history.replaceState(null, "", "./"); }
 
   $("#backHome").addEventListener("click", goHome);
   $("#openSettings").addEventListener("click", () => switchView("settings"));
@@ -1730,15 +1545,11 @@ function init() {
     if (!trip) return;
     if (confirm(`確定要刪除「${trip.title}」這趟旅遊嗎？此動作無法復原。`)) {
       JOURNAL.trips = JOURNAL.trips.filter((t) => t.id !== trip.id);
-      saveJournal();
-      goHome();
+      saveJournal(); goHome();
     }
   });
 
   if (getApiKey()) loadGoogleMaps(getApiKey()).catch(() => {});
-
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => { navigator.serviceWorker.register("./sw.js").catch(() => {}); });
-  }
+  if ("serviceWorker" in navigator) window.addEventListener("load", () => { navigator.serviceWorker.register("./sw.js").catch(() => {}); });
 }
 document.addEventListener("DOMContentLoaded", init);

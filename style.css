@@ -175,7 +175,8 @@ button, input, textarea, select {
   padding: 10px 12px; font-size: 14px; background: var(--card);
 }
 .settings-row { display: flex; gap: 8px; }
-.settings-row > * { flex: 1; }
+.settings-row > * { flex: 1; min-width: 0; }
+.settings-row input, .settings-row select { width: 100%; box-sizing: border-box; }
 .settings-row--wrap { flex-wrap: wrap; }
 .settings-row--wrap > * { flex: 1 1 30%; min-width: 80px; }
 .settings-row--wrap input { width: 100%; padding: 7px 8px; font-size: 13px; }
@@ -315,6 +316,7 @@ main#views {
 
 .day-editable-row {
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-bottom: 16px;
 }
@@ -323,8 +325,21 @@ main#views {
   border-radius: 8px;
   padding: 7px 10px;
   font-size: 13px;
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   background: var(--card);
+  color: var(--ink);
+}
+.day-date-badge {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--green-deep);
+  background: var(--green-mist);
+  padding: 7px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
 }
 
 .road { position: relative; padding-left: 26px; }
@@ -504,14 +519,15 @@ main#views {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 9px 2px 8px;
-  font-size: 10px;
+  gap: 3px;
+  padding: 10px 2px 9px;
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--ink-soft);
   cursor: pointer;
   white-space: nowrap;
 }
-.tabbar__btn .ico { font-size: 18px; }
+.tabbar__btn .ico { font-size: 22px; }
 .tabbar__btn.active { color: var(--green-deep); font-weight: 700; }
 
 /* ---------- Modal ---------- */
