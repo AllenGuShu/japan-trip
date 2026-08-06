@@ -872,7 +872,7 @@ function openStopForm(day) {
       tryAttachPlacesAutocomplete(nameInput, (place) => {
         placeData = { placeId: place.place_id, address: place.formatted_address || "" };
         nameInput.value = place.name || nameInput.value;
-        root.querySelector("#place-hint").textContent = "✓ 已鎖定地標：" + (place.formatted_address || "");
+        { const ph = root.querySelector("#place-hint"); ph.textContent = "✓ 已鎖定地標：" + (place.formatted_address || ""); ph.classList.add("field-hint--ok"); }
       });
     }
     root.querySelector("[data-save]").addEventListener("click", () => {
@@ -1245,7 +1245,7 @@ function openLodgingForm() {
         placeData = { placeId: place.place_id, address: place.formatted_address || "" };
         nameInput.value = place.name || nameInput.value;
         addrInput.value = place.formatted_address || addrInput.value;
-        root.querySelector("#place-hint").textContent = "✓ 已鎖定地標";
+        { const ph = root.querySelector("#place-hint"); ph.textContent = "✓ 已鎖定地標"; ph.classList.add("field-hint--ok"); }
       });
     }
     root.querySelector("#f-parse-btn").addEventListener("click", () => {
