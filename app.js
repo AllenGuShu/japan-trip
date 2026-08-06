@@ -624,10 +624,8 @@ function openTripForm() {
         <label><input type="radio" name="transport" value="兩者都有" /><span>都有</span></label>
       </div>
     </div>
-    <div class="settings-row">
-      <div class="field"><label>出發日期（選填）</label><input id="f-start-date" type="date" /></div>
-      <div class="field"><label>天數</label><input id="f-days" type="number" min="1" max="30" value="6" /></div>
-    </div>
+    <div class="field"><label>出發日期（選填）</label><input id="f-start-date" type="date" /></div>
+    <div class="field"><label>天數</label><input id="f-days" type="number" min="1" max="30" value="6" /></div>
     <p class="field-hint" style="margin-top:-8px;">填了出發日期，每天的行程日期會自動排好，不用再逐天設定。</p>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>取消</button>
@@ -1225,10 +1223,8 @@ function openLodgingForm() {
       <p class="field-hint" id="place-hint"></p>
     </div>
     <div class="field"><label>地址（選填，若用搜尋會自動帶入）</label><input id="f-addr" placeholder="地址" /></div>
-    <div class="settings-row">
-      <div class="field"><label>入住日期</label><input id="f-in" type="date" /></div>
-      <div class="field"><label>退房日期</label><input id="f-out" type="date" /></div>
-    </div>
+    <div class="field"><label>入住日期</label><input id="f-in" type="date" /></div>
+    <div class="field"><label>退房日期</label><input id="f-out" type="date" /></div>
     <div class="field"><label>訂房代碼（選填）</label><input id="f-code" placeholder="訂房確認碼" /></div>
     <div class="field"><label>電話（選填）</label><input id="f-phone" placeholder="選填" /></div>
     <div class="field"><label>備註</label><textarea id="f-note" placeholder="選填"></textarea></div>
