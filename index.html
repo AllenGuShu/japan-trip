@@ -42,6 +42,7 @@
     <div class="home-actions">
       <button class="btn btn--primary btn--block" data-open="trip-form">＋ 新增一趟旅遊</button>
       <button class="btn btn--ghost btn--block" id="importTripBtn">📥 匯入旅遊檔案</button>
+      <button class="btn btn--ghost btn--block" id="joinSyncBtn">🔗 加入共編旅遊</button>
     </div>
     <div id="tripList" class="stack trip-list"></div>
   </main>
@@ -107,6 +108,8 @@
         <span id="rateStatus" class="rate-status"></span>
       </div>
       <div id="budgetSection"></div>
+      <div id="membersSection"></div>
+      <div id="settlementSection"></div>
       <div id="expenseByCategory" class="chip-row"></div>
       <div id="expenseList" class="stack"></div>
       <button class="btn btn--primary" data-open="expense-form">＋ 新增花費</button>
@@ -157,6 +160,9 @@
   <button id="installBannerClose" class="install-banner__close" title="關閉">✕</button>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 <script src="app.js"></script>
 </body>

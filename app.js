@@ -102,6 +102,7 @@ function newTrip({ title, startDate, dayCount, countryEntry, transport }) {
     days,
     packing: defaultPacking(countryEntry.name, selfDrive),
     expenses: [],
+    members: [],
     customPhrases: [],
     notes: [],
     flights: [],
@@ -109,6 +110,7 @@ function newTrip({ title, startDate, dayCount, countryEntry, transport }) {
     transportItems: [],
     weatherCity: "",
     weatherCache: null,
+    syncCode: null,
   };
 }
 
@@ -128,7 +130,8 @@ function migrateV2Trip(old) {
     spots: (old.spots || []).map((s) => ({ tags: [], ...s })),
     days: old.days && old.days.length ? old.days.map((d) => ({ journal: "", ...d, stops: (d.stops||[]).map(s=>({tags:[],...s})) })) : [],
     packing: old.packing || defaultPacking("日圓", true),
-    expenses: old.expenses || [],
+    expenses: (old.expenses || []).map((e) => ({ payerId: null, splitWith: [], ...e })),
+    members: old.members || [],
     customPhrases: old.customPhrases || [],
     notes: old.notes || [],
     flights: old.flights || [],
@@ -136,6 +139,7 @@ function migrateV2Trip(old) {
     transportItems: old.transportItems || [],
     weatherCity: old.weatherCity || "",
     weatherCache: old.weatherCache || null,
+    syncCode: null,
   };
 }
 
@@ -153,6 +157,12 @@ function loadJournal() {
           if (t.weatherCity === undefined) t.weatherCity = "";
           if (t.weatherCache === undefined) t.weatherCache = null;
           if (!t.notes) t.notes = [];
+          if (!t.members) t.members = [];
+          if (t.syncCode === undefined) t.syncCode = null;
+          (t.expenses || []).forEach((e) => {
+            if (e.payerId === undefined) e.payerId = null;
+            if (!e.splitWith) e.splitWith = [];
+          });
           (t.spots || []).forEach((s) => { if (!s.tags) s.tags = []; });
           (t.days || []).forEach((d) => {
             if (d.journal === undefined) d.journal = "";
@@ -189,7 +199,11 @@ function loadJournal() {
 }
 
 let JOURNAL = loadJournal();
-function saveJournal() { localStorage.setItem(STORAGE_KEY, JSON.stringify(JOURNAL)); }
+function saveJournal() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(JOURNAL));
+  const trip = currentTrip();
+  if (trip && trip.syncCode) pushTripToCloud(trip);
+}
 
 const appState = { screen: "home", tripId: null };
 function currentTrip() { return JOURNAL.trips.find((t) => t.id === appState.tripId); }
@@ -197,10 +211,16 @@ function currentTrip() { return JOURNAL.trips.find((t) => t.id === appState.trip
 /* ---------- 深複製 + 重新產生所有巢狀 id ---------- */
 function regenerateIds(trip) {
   trip.id = uid();
+  const memberIdMap = new Map();
+  (trip.members || []).forEach((m) => { const newId = uid(); memberIdMap.set(m.id, newId); m.id = newId; });
   (trip.spots || []).forEach((s) => { s.id = uid(); });
   (trip.days || []).forEach((d) => { d.id = uid(); (d.stops || []).forEach((st) => { st.id = uid(); }); });
   (trip.packing || []).forEach((g) => { (g.items || []).forEach((it) => { it.id = uid(); }); });
-  (trip.expenses || []).forEach((e) => { e.id = uid(); });
+  (trip.expenses || []).forEach((e) => {
+    e.id = uid();
+    if (e.payerId && memberIdMap.has(e.payerId)) e.payerId = memberIdMap.get(e.payerId);
+    if (Array.isArray(e.splitWith)) e.splitWith = e.splitWith.filter((id) => memberIdMap.has(id)).map((id) => memberIdMap.get(id));
+  });
   (trip.customPhrases || []).forEach((p) => { p.id = uid(); });
   (trip.notes || []).forEach((n) => { n.id = uid(); });
   (trip.flights || []).forEach((f) => { f.id = uid(); });
@@ -213,6 +233,7 @@ function duplicateTrip(trip, mode) {
   const copy = JSON.parse(JSON.stringify(trip));
   regenerateIds(copy);
   copy.createdAt = Date.now();
+  copy.syncCode = null;
   if (mode === "template") {
     copy.title = trip.title + "（範本）";
     copy.spots = [];
@@ -414,6 +435,119 @@ function openGlobalSettings() {
   });
 }
 
+/* ===================== 共同編輯（Firebase Firestore，選用） ===================== */
+let syncEnabled = false;
+let db = null;
+let activeSyncUnsub = null;
+const pushTimers = {};
+
+function initFirebaseIfConfigured() {
+  const cfg = window.FIREBASE_CONFIG;
+  if (!cfg || !cfg.apiKey || !window.firebase) { syncEnabled = false; return; }
+  try {
+    firebase.initializeApp(cfg);
+    db = firebase.firestore();
+    syncEnabled = true;
+  } catch (e) { syncEnabled = false; }
+}
+
+function generateShareCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 避免容易看錯的字元
+  let code = "";
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+function pushTripToCloud(trip) {
+  if (!syncEnabled || !trip.syncCode || !db) return;
+  clearTimeout(pushTimers[trip.id]);
+  pushTimers[trip.id] = setTimeout(() => {
+    const clean = JSON.parse(JSON.stringify(trip));
+    db.collection("trips").doc(trip.syncCode).set(clean).catch((e) => console.warn("同步上傳失敗", e));
+  }, 800);
+}
+
+function unsubscribeTripSync() {
+  if (activeSyncUnsub) { activeSyncUnsub(); activeSyncUnsub = null; }
+}
+
+function subscribeTripSync(trip) {
+  unsubscribeTripSync();
+  if (!syncEnabled || !trip.syncCode || !db) return;
+  activeSyncUnsub = db.collection("trips").doc(trip.syncCode).onSnapshot((snap) => {
+    if (!snap.exists) return;
+    const remote = snap.data();
+    if (!remote) return;
+    const idx = JOURNAL.trips.findIndex((t) => t.id === trip.id);
+    if (idx === -1) return;
+    JOURNAL.trips[idx] = remote;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(JOURNAL));
+    if (appState.screen === "trip" && appState.tripId === trip.id) {
+      renderTripHeader(); renderDaysView(); renderExpenses(); renderPhrases(); renderLogistics(); renderSettings();
+    }
+  }, (err) => { console.warn("同步監聽失敗", err); });
+}
+
+async function enableSync(trip) {
+  if (!syncEnabled) { alert("尚未設定雲端同步功能，請聯絡開發者設定 Firebase（詳見 README）。"); return; }
+  const code = generateShareCode();
+  const clean = JSON.parse(JSON.stringify(trip));
+  clean.syncCode = code;
+  try {
+    await db.collection("trips").doc(code).set(clean);
+    trip.syncCode = code;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(JOURNAL));
+    subscribeTripSync(trip);
+    renderSettings();
+    renderTripHeader();
+  } catch (e) {
+    alert("啟用共同編輯失敗，請確認網路連線或 Firebase 設定是否正確。");
+  }
+}
+
+function disableSync(trip) {
+  unsubscribeTripSync();
+  trip.syncCode = null;
+  saveJournal();
+  renderSettings();
+  renderTripHeader();
+}
+
+function openJoinSyncForm() {
+  if (!syncEnabled) { alert("尚未設定雲端同步功能，請聯絡開發者設定 Firebase（詳見 README）。"); return; }
+  openModal(`
+    <h3>🔗 加入共編旅遊</h3>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-top:-6px;">輸入朋友給你的 6 碼代碼，就能加入同一趟旅遊，之後你們兩邊的行程、記帳都會即時同步。</p>
+    <div class="field"><label>共編代碼</label><input id="f-code" placeholder="例如 AB3F9K" style="text-transform:uppercase;letter-spacing:2px;font-family:var(--font-mono);" /></div>
+    <div class="modal-actions">
+      <button class="btn btn--ghost" data-cancel>取消</button>
+      <button class="btn btn--primary" data-save>加入</button>
+    </div>
+  `, (root) => {
+    root.querySelector("[data-save]").addEventListener("click", async () => {
+      const code = root.querySelector("#f-code").value.trim().toUpperCase();
+      if (!code) return;
+      const btn = root.querySelector("[data-save]");
+      btn.textContent = "加入中...";
+      try {
+        const snap = await db.collection("trips").doc(code).get();
+        if (!snap.exists) { alert("找不到這個代碼，請確認是否正確。"); btn.textContent = "加入"; return; }
+        const remote = snap.data();
+        const existingIdx = JOURNAL.trips.findIndex((t) => t.syncCode === code);
+        if (existingIdx >= 0) JOURNAL.trips[existingIdx] = remote;
+        else JOURNAL.trips.push(remote);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(JOURNAL));
+        closeModal();
+        renderHome();
+        openTrip(remote.id);
+      } catch (e) {
+        alert("加入失敗，請確認網路連線。");
+        btn.textContent = "加入";
+      }
+    });
+  });
+}
+
 /* ===================== 天氣（Open-Meteo，免金鑰） ===================== */
 async function geocodeCity(city) {
   const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=zh`);
@@ -496,6 +630,7 @@ function switchScreen(name) {
 function goHome() {
   appState.screen = "home";
   appState.tripId = null;
+  unsubscribeTripSync();
   switchScreen("home");
   renderHome();
 }
@@ -516,6 +651,8 @@ function openTrip(id) {
   renderSettings();
   const trip = currentTrip();
   if (trip.weatherCity && (!trip.weatherCache || Date.now() - trip.weatherCache.fetchedAt > 6 * 3600 * 1000)) fetchWeatherForTrip();
+  if (trip.syncCode) subscribeTripSync(trip);
+  else unsubscribeTripSync();
 }
 
 /* ===================== 首頁：旅遊列表 ===================== */
@@ -534,7 +671,7 @@ function renderHome() {
         <button class="trip-card">
           <div class="trip-card__strip"></div>
           <div class="trip-card__body">
-            <p class="trip-card__title">${trip.flag || "🌍"} ${escapeHtml(trip.title)}</p>
+            <p class="trip-card__title">${trip.flag || "🌍"} ${escapeHtml(trip.title)}${trip.syncCode ? ` <span class="sync-badge">🔄 共編中</span>` : ""}</p>
             <p class="trip-card__meta">${escapeHtml(trip.country || "")} · ${trip.dayCount}天${Math.max(trip.dayCount - 1, 0)}夜 · ${escapeHtml(trip.transport || "")}${trip.dateRange ? " · " + escapeHtml(trip.dateRange) : ""}</p>
             <div class="trip-card__stats"><span>🛣️ ${stopCount} 個行程點</span></div>
           </div>
@@ -872,6 +1009,8 @@ function openStopForm(day) {
         nameInput.value = place.name || nameInput.value;
         { const ph = root.querySelector("#place-hint"); ph.textContent = "✓ 已鎖定地標：" + (place.formatted_address || ""); ph.classList.add("field-hint--ok"); }
       });
+    } else {
+      root.querySelector("#place-hint").textContent = "💡 想用 Google 地圖搜尋真實地標嗎？回首頁點右上角 🔑 設定金鑰即可啟用";
     }
     root.querySelector("[data-save]").addEventListener("click", () => {
       const name = nameInput.value.trim();
@@ -887,7 +1026,7 @@ function openStopForm(day) {
   });
 }
 
-/* ===================== 記帳（含預算） ===================== */
+/* ===================== 記帳（含預算 + 分帳結算） ===================== */
 function iconFor(cat) { return (EXPENSE_CATS.find((c) => c.key === cat) || {}).icon || "🧾"; }
 function budgetBarHtml(spent, budget, label) {
   if (budget == null || budget <= 0) return "";
@@ -896,6 +1035,117 @@ function budgetBarHtml(spent, budget, label) {
   const cls = over ? "over" : pct >= 0.8 ? "warn" : "ok";
   return `<div class="budget-row"><div class="budget-row__labels"><span>${escapeHtml(label)}</span><span class="${over?"budget-over-text":""}">${spent.toLocaleString()} / ${budget.toLocaleString()}</span></div><div class="budget-bar"><div class="budget-bar__fill ${cls}" style="width:${pct*100}%;"></div></div></div>`;
 }
+function memberName(trip, id) { return (trip.members.find((m) => m.id === id) || {}).name || "未指定"; }
+
+function calculateSettlement(trip) {
+  const members = trip.members;
+  if (members.length < 2) return null;
+  const paid = {}, owed = {};
+  members.forEach((m) => { paid[m.id] = 0; owed[m.id] = 0; });
+  trip.expenses.forEach((e) => {
+    const amount = Number(e.amount || 0);
+    if (e.payerId && paid[e.payerId] !== undefined) paid[e.payerId] += amount;
+    const splitWith = (e.splitWith && e.splitWith.length ? e.splitWith : members.map((m) => m.id)).filter((id) => owed[id] !== undefined);
+    if (!splitWith.length) return;
+    const share = amount / splitWith.length;
+    splitWith.forEach((id) => { owed[id] += share; });
+  });
+  const balances = members.map((m) => ({ id: m.id, name: m.name, paid: paid[m.id], owed: owed[m.id], balance: paid[m.id] - owed[m.id] }));
+
+  const creditors = balances.filter((b) => b.balance > 0.5).map((b) => ({ ...b })).sort((a, b) => b.balance - a.balance);
+  const debtors = balances.filter((b) => b.balance < -0.5).map((b) => ({ ...b, balance: -b.balance })).sort((a, b) => b.balance - a.balance);
+  const transfers = [];
+  let i = 0, j = 0;
+  while (i < debtors.length && j < creditors.length) {
+    const pay = Math.min(debtors[i].balance, creditors[j].balance);
+    if (pay > 0.5) transfers.push({ from: debtors[i].name, to: creditors[j].name, amount: Math.round(pay) });
+    debtors[i].balance -= pay; creditors[j].balance -= pay;
+    if (debtors[i].balance <= 0.5) i++;
+    if (creditors[j].balance <= 0.5) j++;
+  }
+  return { balances, transfers };
+}
+
+function renderMembers() {
+  const trip = currentTrip();
+  if (!trip) return;
+  const wrap = $("#membersSection");
+  wrap.innerHTML = "";
+  const card = el(`<div class="card members-card"></div>`);
+  card.appendChild(el(`<p class="members-card__title">👥 分帳成員${trip.members.length ? `（${trip.members.length}人）` : ""}</p>`));
+  const chipRow = el(`<div class="chip-row" style="margin-bottom:0;"></div>`);
+  trip.members.forEach((m) => {
+    const chip = el(`<span class="member-chip">${escapeHtml(m.name)}<button class="member-chip__del" data-del="${m.id}">✕</button></span>`);
+    chip.querySelector("[data-del]").addEventListener("click", () => {
+      trip.members = trip.members.filter((x) => x.id !== m.id);
+      trip.expenses.forEach((e) => {
+        if (e.payerId === m.id) e.payerId = null;
+        if (e.splitWith) e.splitWith = e.splitWith.filter((id) => id !== m.id);
+      });
+      saveJournal(); renderExpenses();
+    });
+    chipRow.appendChild(chip);
+  });
+  const addChip = el(`<button class="chip">＋ 新增成員</button>`);
+  addChip.addEventListener("click", openAddMemberForm);
+  chipRow.appendChild(addChip);
+  card.appendChild(chipRow);
+  if (!trip.members.length) card.appendChild(el(`<p class="field-hint" style="margin-top:8px;">新增至少 2 位成員，就能在花費裡標記「誰付的」「算誰的」，最後自動幫你算出誰要付給誰多少錢。</p>`));
+  wrap.appendChild(card);
+}
+
+function openAddMemberForm() {
+  const trip = currentTrip();
+  openModal(`
+    <h3>新增成員</h3>
+    <div class="field"><label>名稱</label><input id="f-name" placeholder="例如：小明" /></div>
+    <div class="modal-actions">
+      <button class="btn btn--ghost" data-cancel>取消</button>
+      <button class="btn btn--primary" data-save>新增</button>
+    </div>
+  `, (root) => {
+    root.querySelector("[data-save]").addEventListener("click", () => {
+      const name = root.querySelector("#f-name").value.trim();
+      if (!name) return;
+      trip.members.push({ id: uid(), name });
+      saveJournal(); renderExpenses(); closeModal();
+    });
+  });
+}
+
+function renderSettlement() {
+  const trip = currentTrip();
+  if (!trip) return;
+  const wrap = $("#settlementSection");
+  wrap.innerHTML = "";
+  const result = calculateSettlement(trip);
+  if (!result) return;
+  const symbol = trip.currency.symbol || "";
+  const card = el(`<div class="card settlement-card"></div>`);
+  card.appendChild(el(`<p class="members-card__title">💵 分帳結算</p>`));
+  result.balances.forEach((b) => {
+    const sign = b.balance > 0.5 ? "should-receive" : b.balance < -0.5 ? "should-pay" : "even";
+    const text = b.balance > 0.5 ? `應收回 ${symbol}${Math.round(b.balance).toLocaleString()}` : b.balance < -0.5 ? `應付出 ${symbol}${Math.round(-b.balance).toLocaleString()}` : "已結清";
+    card.appendChild(el(`
+      <div class="settlement-row">
+        <span class="settlement-row__name">${escapeHtml(b.name)}</span>
+        <span class="settlement-row__meta">付了 ${symbol}${Math.round(b.paid).toLocaleString()}　分攤 ${symbol}${Math.round(b.owed).toLocaleString()}</span>
+        <span class="settlement-row__balance ${sign}">${text}</span>
+      </div>
+    `));
+  });
+  if (result.transfers.length) {
+    card.appendChild(el(`<div class="settlement-divider"></div>`));
+    card.appendChild(el(`<p class="settlement-suggest-title">建議轉帳</p>`));
+    result.transfers.forEach((t) => {
+      card.appendChild(el(`<p class="settlement-transfer">👉 <b>${escapeHtml(t.from)}</b> 要付給 <b>${escapeHtml(t.to)}</b>　<span class="settlement-transfer__amount">${symbol}${t.amount.toLocaleString()}</span></p>`));
+    });
+  } else {
+    card.appendChild(el(`<p class="field-hint" style="margin-top:8px;">目前帳務已平衡，不用互轉。</p>`));
+  }
+  wrap.appendChild(card);
+}
+
 function renderExpenses() {
   const trip = currentTrip();
   if (!trip) return;
@@ -920,6 +1170,9 @@ function renderExpenses() {
   if (budgetHtml) budgetWrap.appendChild(el(`<div class="card budget-card">${budgetHtml}</div>`));
   else budgetWrap.appendChild(el(`<div class="empty-hint">還沒有設定預算，可以到 ⚙️ 設定頁設定總預算或分類預算，這裡會顯示花費進度。</div>`));
 
+  renderMembers();
+  renderSettlement();
+
   const byCat = $("#expenseByCategory");
   byCat.innerHTML = "";
   EXPENSE_CATS.forEach((c) => {
@@ -931,12 +1184,15 @@ function renderExpenses() {
   list.innerHTML = "";
   if (!trip.expenses.length) { list.appendChild(el(`<div class="empty-hint">還沒有花費紀錄，出發後隨手記一下吧！</div>`)); return; }
   trip.expenses.slice().reverse().forEach((e) => {
+    const payerText = e.payerId ? `由 ${escapeHtml(memberName(trip, e.payerId))} 付款` : "";
+    const splitText = e.splitWith && e.splitWith.length ? `均分：${e.splitWith.map((id) => escapeHtml(memberName(trip, id))).join("、")}` : "";
     const row = el(`
       <div class="card expense-row">
         <div class="expense-row__icon">${iconFor(e.category)}</div>
         <div class="expense-row__body">
           <div class="expense-row__title">${escapeHtml(e.title || e.category)}</div>
           <div class="expense-row__meta">${escapeHtml(e.category)}${e.note ? " · " + escapeHtml(e.note) : ""}</div>
+          ${payerText || splitText ? `<div class="expense-row__split">${payerText}${payerText && splitText ? " · " : ""}${splitText}</div>` : ""}
         </div>
         <div class="expense-row__amount">${symbol}${Number(e.amount).toLocaleString()}</div>
         <button class="btn btn--danger" data-del>刪</button>
@@ -949,11 +1205,18 @@ function renderExpenses() {
 function openExpenseForm() {
   const trip = currentTrip();
   const catOpts = EXPENSE_CATS.map((c) => `<option value="${c.key}">${c.icon} ${c.key}</option>`).join("");
+  const hasMembers = trip.members.length > 0;
+  const payerOpts = trip.members.map((m) => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("");
+  const splitChecks = trip.members.map((m) => `<label class="tag-check"><input type="checkbox" value="${m.id}" checked /><span>${escapeHtml(m.name)}</span></label>`).join("");
   openModal(`
     <h3>新增花費</h3>
     <div class="field"><label>金額（${escapeHtml(trip.currency.name || "當地貨幣")}）</label><input id="f-amount" type="number" placeholder="0" /></div>
     <div class="field"><label>類別</label><select id="f-cat">${catOpts}</select></div>
     <div class="field"><label>項目名稱</label><input id="f-title" placeholder="例如：拉麵晚餐" /></div>
+    ${hasMembers ? `
+    <div class="field"><label>誰付的錢</label><select id="f-payer"><option value="">未指定</option>${payerOpts}</select></div>
+    <div class="field"><label>算誰的份（可複選，預設全部）</label><div class="tag-check-row">${splitChecks}</div></div>
+    ` : `<p class="field-hint">到下方「👥 分帳成員」新增旅伴，就能標記這筆是誰付的、要算誰的份。</p>`}
     <div class="field"><label>備註</label><input id="f-note" placeholder="選填" /></div>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>取消</button>
@@ -963,7 +1226,12 @@ function openExpenseForm() {
     root.querySelector("[data-save]").addEventListener("click", () => {
       const amount = Number(root.querySelector("#f-amount").value);
       if (!amount) return;
-      trip.expenses.push({ id: uid(), amount, category: root.querySelector("#f-cat").value, title: root.querySelector("#f-title").value.trim(), note: root.querySelector("#f-note").value.trim() });
+      const payerId = hasMembers ? (root.querySelector("#f-payer").value || null) : null;
+      const splitWith = hasMembers ? $all('.tag-check input[type="checkbox"]:checked', root).map((cb) => cb.value) : [];
+      trip.expenses.push({
+        id: uid(), amount, category: root.querySelector("#f-cat").value, title: root.querySelector("#f-title").value.trim(),
+        note: root.querySelector("#f-note").value.trim(), payerId, splitWith,
+      });
       saveJournal(); renderExpenses(); closeModal();
     });
   });
@@ -1397,10 +1665,39 @@ function renderSettings() {
       <p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px;">變更國家/貨幣不會刪除已建立的行程與花費，但預設清單只會在新增旅遊時套用一次，之後可自行增刪。</p>
     </div>
     <div class="card" style="margin-top:16px;">
+      <p class="members-card__title">🔄 共同編輯</p>
+      ${!syncEnabled ? `
+        <p class="field-hint">尚未設定雲端同步功能（需要開發者設定 Firebase），目前僅能用「匯出/匯入檔案」的方式分享，見下方。</p>
+      ` : trip.syncCode ? `
+        <p class="field-hint">把這組代碼分享給朋友，他們到首頁「🔗 加入共編旅遊」輸入即可一起即時編輯行程與記帳：</p>
+        <p class="sync-code">${trip.syncCode}</p>
+        <button class="btn btn--ghost" id="s-copy-code">📋 複製代碼</button>
+        <button class="btn btn--danger" id="s-stop-sync" style="margin-top:8px;">停止同步（僅此裝置退出，其他人不受影響）</button>
+      ` : `
+        <p class="field-hint">開啟後會產生一組代碼，分享給朋友，大家就能同時編輯這趟旅遊的行程和記帳，改動即時同步。</p>
+        <button class="btn btn--primary btn--block" id="s-start-sync">開啟共同編輯</button>
+      `}
+    </div>
+    <div class="card" style="margin-top:16px;">
       <button class="btn btn--ghost btn--block" id="s-export">📤 匯出這趟旅遊（存成檔案分享給別人）</button>
     </div>
     </div>
   `);
+
+  if (syncEnabled && !trip.syncCode) {
+    form.querySelector("#s-start-sync").addEventListener("click", () => enableSync(currentTrip()));
+  }
+  if (syncEnabled && trip.syncCode) {
+    form.querySelector("#s-copy-code").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(trip.syncCode); } catch (e) { /* ignore */ }
+      const btn = form.querySelector("#s-copy-code");
+      btn.textContent = "已複製 ✓";
+      setTimeout(() => { btn.textContent = "📋 複製代碼"; }, 1500);
+    });
+    form.querySelector("#s-stop-sync").addEventListener("click", () => {
+      if (confirm("確定要停止同步嗎？此裝置之後的變更就不會再跟其他人同步。")) disableSync(currentTrip());
+    });
+  }
 
   form.querySelector("#s-country").addEventListener("change", (e) => { form.querySelector("#s-custom-wrap").style.display = e.target.value === "__custom" ? "block" : "none"; });
 
@@ -1523,6 +1820,7 @@ function init() {
   $all(".theme-toggle-btn").forEach((b) => { b.textContent = getTheme() === "dark" ? "☀️" : "🌙"; });
   $all(".theme-toggle-btn").forEach((b) => b.addEventListener("click", toggleTheme));
 
+  initFirebaseIfConfigured();
   initTabbar();
   initFormTriggers();
   initInstallBanner();
@@ -1535,11 +1833,13 @@ function init() {
   $("#openSettings").addEventListener("click", () => switchView("settings"));
   $("#fetchRateBtn").addEventListener("click", fetchLiveRate);
   $("#importTripBtn").addEventListener("click", importTripFile);
+  $("#joinSyncBtn").addEventListener("click", openJoinSyncForm);
   $("#openGlobalSettings").addEventListener("click", openGlobalSettings);
   $("#deleteTripBtn").addEventListener("click", () => {
     const trip = currentTrip();
     if (!trip) return;
     if (confirm(`確定要刪除「${trip.title}」這趟旅遊嗎？此動作無法復原。`)) {
+      unsubscribeTripSync();
       JOURNAL.trips = JOURNAL.trips.filter((t) => t.id !== trip.id);
       saveJournal(); goHome();
     }
