@@ -376,7 +376,12 @@ function toggleTheme() {
 }
 
 /* ===================== Google Places（選用） ===================== */
-function getApiKey() { return localStorage.getItem(GMAPS_KEY_STORAGE) || ""; }
+function getApiKey() {
+  const local = localStorage.getItem(GMAPS_KEY_STORAGE);
+  if (local) return local;
+  return window.GMAPS_DEFAULT_KEY || "";
+}
+function hasLocalOverrideKey() { return !!localStorage.getItem(GMAPS_KEY_STORAGE); }
 function setApiKey(key) { if (key) localStorage.setItem(GMAPS_KEY_STORAGE, key); else localStorage.removeItem(GMAPS_KEY_STORAGE); }
 
 let gmapsLoadPromise = null;
@@ -412,23 +417,28 @@ function tryAttachPlacesAutocomplete(input, onPlace) {
 
 function openGlobalSettings() {
   const key = getApiKey();
+  const hasDefault = !!window.GMAPS_DEFAULT_KEY;
+  const usingDefault = hasDefault && !hasLocalOverrideKey();
   openModal(`
     <h3>🔑 地點搜尋設定</h3>
     <p style="font-size:12.5px;color:var(--ink-soft);line-height:1.6;margin-top:-6px;">
-      填入 Google Maps API 金鑰後，新增行程點/住宿時可以直接搜尋真實地標，自動帶入正確地址與地圖連結。
-      沒有金鑰也完全不影響使用，只是要自己手動輸入地名。金鑰只會存在你這台裝置的瀏覽器裡。
+      ${usingDefault
+        ? "這個網站已經內建地點搜尋功能，一般不需要自己設定。新增行程點/住宿時輸入關鍵字就能直接搜尋真實地標。"
+        : "填入 Google Maps API 金鑰後，新增行程點/住宿時可以直接搜尋真實地標，自動帶入正確地址與地圖連結。"}
+      ${hasDefault ? "如果你想改用自己的金鑰（例如額度考量），可以在下面填入覆蓋；清除後會恢復使用網站內建的金鑰。" : "沒有金鑰也完全不影響使用，只是要自己手動輸入地名。"}
+      金鑰只會存在你這台裝置的瀏覽器裡。
     </p>
-    <div class="field"><label>Google Maps API 金鑰</label><input id="f-key" value="${escapeHtml(key)}" placeholder="貼上你的 API 金鑰" /></div>
+    <div class="field"><label>${hasDefault ? "自訂 API 金鑰（選填，留空使用內建金鑰）" : "Google Maps API 金鑰"}</label><input id="f-key" value="${escapeHtml(hasLocalOverrideKey() ? key : "")}" placeholder="${hasDefault ? "留空＝使用內建金鑰" : "貼上你的 API 金鑰"}" /></div>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>關閉</button>
-      <button class="btn btn--danger" data-clear>清除金鑰</button>
+      <button class="btn btn--danger" data-clear>${hasDefault ? "清除（恢復內建金鑰）" : "清除金鑰"}</button>
       <button class="btn btn--primary" data-save>儲存</button>
     </div>
   `, (root) => {
     root.querySelector("[data-save]").addEventListener("click", () => {
       const v = root.querySelector("#f-key").value.trim();
       setApiKey(v);
-      if (v) loadGoogleMaps(v).catch(() => {});
+      if (getApiKey()) loadGoogleMaps(getApiKey()).catch(() => {});
       closeModal();
     });
     root.querySelector("[data-clear]").addEventListener("click", () => { setApiKey(""); closeModal(); });

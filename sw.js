@@ -1,4 +1,4 @@
-const CACHE_NAME = "trip-cache-v8";
+const CACHE_NAME = "trip-cache-v9";
 const ASSETS = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const ASSETS = [
   "./app.js",
   "./manifest.json",
   "./firebase-config.js",
+  "./maps-config.js",
   "./icons/icon-32.png",
   "./icons/icon-152.png",
   "./icons/icon-167.png",
