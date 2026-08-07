@@ -3,7 +3,6 @@ const STORAGE_KEY = "jp-trip-journal-v3";
 const OLD_STORAGE_KEY_V2 = "jp-trip-journal-v2";
 const OLD_STORAGE_KEY_V1 = "jp-trip-data-v1";
 const GMAPS_KEY_STORAGE = "gmaps-api-key";
-const THEME_STORAGE = "trip-journal-theme";
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
@@ -69,13 +68,41 @@ function formatDateDisplay(iso) {
 /* ---------- 預設準備清單 ---------- */
 function defaultPacking(currencyName, selfDrive) {
   const groups = [
-    { category: "證件與文件", items: ["護照（效期6個月以上）", "護照影本 x2", "機票 / 電子機票", "住宿訂房確認單", "海外旅平險保單"] },
-    { category: "3C用品", items: ["手機＋充電線", "行動電源", "當地電源轉接頭", "上網 SIM卡 / eSIM / WiFi分享器"] },
-    { category: "藥品與盥洗", items: ["個人常備藥（腸胃藥、止痛藥）", "暈車/暈機藥", "防曬乳", "隨身小包衛生紙／濕紙巾"] },
-    { category: "衣物", items: ["當地氣候合適衣物", "薄外套（室內冷氣強或早晚溫差）", "帽子／太陽眼鏡", "好走的鞋"] },
-    { category: "金錢", items: [`${currencyName || "當地貨幣"}現金`, "信用卡（記得開通海外交易）"] },
+    { category: "證件與文件", items: [
+      "護照（效期6個月以上）", "護照影本 x2（與正本分開放）", "簽證／入境許可證明（如適用）",
+      "機票／電子機票", "住宿訂房確認單", "海外旅平險保單",
+      "緊急聯絡人卡片（中英文）", "信用卡海外緊急聯絡電話抄錄",
+    ]},
+    { category: "3C與電子用品", items: [
+      "手機＋充電線", "行動電源（隨身攜帶，勿托運）", "當地電源轉接頭", "上網 SIM卡／eSIM／WiFi分享器",
+      "相機＋備用電池＋記憶卡", "備用充電線／充電頭", "藍芽耳機", "手機腳架／自拍棒（選用）",
+    ]},
+    { category: "藥品與健康", items: [
+      "個人常備藥（腸胃藥、止痛藥）", "暈車／暈機藥", "感冒藥", "個人處方藥（附醫生證明）",
+      "防蚊液", "OK繃／簡易醫藥包", "口罩",
+    ]},
+    { category: "盥洗與個人清潔", items: [
+      "牙刷牙膏", "洗面乳／卸妝用品", "隱形眼鏡藥水＋備用隱眼", "保養品分裝瓶",
+      "生理用品", "刮鬍刀", "隨身小包衛生紙／濕紙巾",
+    ]},
+    { category: "衣物與穿搭", items: [
+      "當地氣候合適衣物", "薄外套／防風外套", "帽子／太陽眼鏡", "好走的鞋",
+      "襪子＋內衣褲（依天數＋1備用）", "睡衣", "雨具／輕便雨衣",
+    ]},
+    { category: "金錢與支付", items: [
+      `${currencyName || "當地貨幣"}現金`, "信用卡（記得開通海外交易）", "少許零錢（投幣置物櫃/廁所用）",
+    ]},
+    { category: "行李收納", items: [
+      "行李秤", "行李箱鎖", "分裝夾鏈袋", "折疊購物袋（戰利品用）", "洗衣袋",
+    ]},
+    { category: "出發前確認", items: [
+      "家中門窗、水電、瓦斯確認關閉", "請假／代班安排", "寵物或植物託管安排",
+      "手機開通國際漫遊或確認 eSIM 已安裝", "信用卡／銀行 App 開啟國外用卡通知",
+    ]},
   ];
-  if (selfDrive) groups.push({ category: "自駕用品", items: ["國際駕照", "台灣駕照正本", "租車預約確認單", "車用手機架", "ETC卡（若租車有配）"] });
+  if (selfDrive) groups.push({ category: "自駕用品", items: [
+    "國際駕照", "台灣駕照正本", "租車預約確認單", "車用手機架", "ETC卡（若租車有配）", "太陽眼鏡（開車遮陽用）",
+  ]});
   return groups.map((g) => ({ category: g.category, items: g.items.map((text) => ({ id: uid(), text, done: false })) }));
 }
 
@@ -83,7 +110,7 @@ function newTrip({ title, startDate, dayCount, countryEntry, transport }) {
   const count = Math.min(Math.max(Number(dayCount) || 1, 1), 30);
   const selfDrive = transport === "自駕" || transport === "兩者都有";
   const days = Array.from({ length: count }, (_, i) => ({
-    id: uid(), label: `Day ${i + 1}`, date: startDate ? addDaysISO(startDate, i) : "", journal: "", stops: [],
+    id: uid(), label: `Day ${i + 1}`, date: startDate ? addDaysISO(startDate, i) : "", journal: "", stops: [], weatherCache: null,
   }));
   const dateRange = startDate ? `${isoToSlash(startDate)}-${isoToSlash(addDaysISO(startDate, count - 1))}` : "";
   return {
@@ -128,7 +155,7 @@ function migrateV2Trip(old) {
     budget: old.budget || emptyBudget(),
     createdAt: old.createdAt || Date.now(),
     spots: (old.spots || []).map((s) => ({ tags: [], ...s })),
-    days: old.days && old.days.length ? old.days.map((d) => ({ journal: "", ...d, stops: (d.stops||[]).map(s=>({tags:[],...s})) })) : [],
+    days: old.days && old.days.length ? old.days.map((d) => ({ journal: "", weatherCache: null, ...d, stops: (d.stops||[]).map(s=>({tags:[],lat:null,lng:null,...s})) })) : [],
     packing: old.packing || defaultPacking("日圓", true),
     expenses: (old.expenses || []).map((e) => ({ payerId: null, splitWith: [], ...e })),
     members: old.members || [],
@@ -166,7 +193,8 @@ function loadJournal() {
           (t.spots || []).forEach((s) => { if (!s.tags) s.tags = []; });
           (t.days || []).forEach((d) => {
             if (d.journal === undefined) d.journal = "";
-            (d.stops || []).forEach((s) => { if (!s.tags) s.tags = []; });
+            if (d.weatherCache === undefined) d.weatherCache = null;
+            (d.stops || []).forEach((s) => { if (!s.tags) s.tags = []; if (s.lat === undefined) s.lat = null; if (s.lng === undefined) s.lng = null; });
           });
         });
         return parsed;
@@ -237,7 +265,7 @@ function duplicateTrip(trip, mode) {
   if (mode === "template") {
     copy.title = trip.title + "（範本）";
     copy.spots = [];
-    copy.days = copy.days.map((d) => ({ id: uid(), label: d.label, date: "", journal: "", stops: [] }));
+    copy.days = copy.days.map((d) => ({ id: uid(), label: d.label, date: "", journal: "", stops: [], weatherCache: null }));
     copy.dateRange = "";
     copy.expenses = [];
     copy.flights = [];
@@ -365,16 +393,6 @@ function mapUrlForPlace(name, placeId) {
   return mapUrl(name);
 }
 
-/* ===================== 深色模式 ===================== */
-function getTheme() { return localStorage.getItem(THEME_STORAGE) || "light"; }
-function applyTheme(theme) { document.documentElement.setAttribute("data-theme", theme === "dark" ? "dark" : "light"); }
-function toggleTheme() {
-  const next = getTheme() === "dark" ? "light" : "dark";
-  localStorage.setItem(THEME_STORAGE, next);
-  applyTheme(next);
-  $all(".theme-toggle-btn").forEach((b) => { b.textContent = next === "dark" ? "☀️" : "🌙"; });
-}
-
 /* ===================== Google Places（選用） ===================== */
 function getApiKey() {
   const local = localStorage.getItem(GMAPS_KEY_STORAGE);
@@ -385,22 +403,47 @@ function hasLocalOverrideKey() { return !!localStorage.getItem(GMAPS_KEY_STORAGE
 function setApiKey(key) { if (key) localStorage.setItem(GMAPS_KEY_STORAGE, key); else localStorage.removeItem(GMAPS_KEY_STORAGE); }
 
 let gmapsLoadPromise = null;
+let gmapsAuthFailed = false;
+window.gm_authFailure = function () {
+  gmapsAuthFailed = true;
+  gmapsLoadPromise = null;
+  console.warn("Google Maps 金鑰驗證失敗，請確認金鑰是否正確，以及網站限制的網域是否跟目前網址完全一致。");
+};
 function loadGoogleMaps(key) {
   if (!key) return Promise.reject(new Error("no key"));
   if (window.google && window.google.maps && window.google.maps.places) return Promise.resolve();
   if (gmapsLoadPromise) return gmapsLoadPromise;
+  gmapsAuthFailed = false;
   gmapsLoadPromise = new Promise((resolve, reject) => {
     const cbName = "__gmapsReady";
-    window[cbName] = () => resolve();
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      gmapsLoadPromise = null;
+      reject(new Error("Google Maps 載入逾時"));
+    }, 10000);
+    window[cbName] = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve();
+    };
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places&callback=${cbName}`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places&language=zh-TW&region=TW&callback=${cbName}`;
     script.async = true;
-    script.onerror = () => reject(new Error("Google Maps 載入失敗"));
+    script.onerror = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      gmapsLoadPromise = null;
+      reject(new Error("Google Maps 載入失敗"));
+    };
     document.head.appendChild(script);
   });
   return gmapsLoadPromise;
 }
-function tryAttachPlacesAutocomplete(input, onPlace) {
+function tryAttachPlacesAutocomplete(input, onPlace, onStatus) {
   const key = getApiKey();
   if (!key || !input) return;
   loadGoogleMaps(key).then(() => {
@@ -412,7 +455,12 @@ function tryAttachPlacesAutocomplete(input, onPlace) {
         if (place && place.place_id) onPlace(place);
       });
     } catch (e) { /* 靜默失敗 */ }
-  }).catch(() => {});
+  }).catch((err) => {
+    if (onStatus) {
+      if (gmapsAuthFailed) onStatus("⚠️ 地圖金鑰驗證失敗，可能是網域限制設定不符，請洽管理者確認");
+      else onStatus("⚠️ 地圖服務暫時無法連線，可先手動輸入地名，稍後會自動重試");
+    }
+  });
 }
 
 function openGlobalSettings() {
@@ -593,30 +641,37 @@ async function tryAutoJoinFromUrl() {
 }
 
 /* ===================== 天氣（Open-Meteo，免金鑰） ===================== */
-async function geocodeCity(city) {
-  const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=zh`);
-  const data = await res.json();
-  if (!data.results || !data.results.length) throw new Error("找不到這個城市");
-  const r = data.results[0];
-  return { lat: r.latitude, lon: r.longitude, label: r.name + (r.admin1 ? " " + r.admin1 : "") };
+function firstLocatableStop(day) {
+  return (day.stops || []).find((s) => typeof s.lat === "number" && typeof s.lng === "number") || null;
 }
-async function fetchWeatherForTrip() {
-  const trip = currentTrip();
-  const status = $("#weatherStatus");
-  if (!trip.weatherCity) { if (status) status.textContent = "請先填入城市名稱。"; return; }
-  if (status) status.textContent = "查詢中...";
+async function fetchWeatherForDay(day) {
+  const stop = firstLocatableStop(day);
+  if (!stop || !day.date) return false;
   try {
-    const loc = await geocodeCity(trip.weatherCity);
-    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`);
+    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${stop.lat}&longitude=${stop.lng}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&start_date=${day.date}&end_date=${day.date}`);
     const data = await res.json();
-    const days = data.daily.time.map((date, i) => ({ date, code: data.daily.weathercode[i], tmax: data.daily.temperature_2m_max[i], tmin: data.daily.temperature_2m_min[i] }));
-    trip.weatherCache = { city: loc.label, fetchedAt: Date.now(), days };
-    saveJournal();
-    if (status) status.textContent = `已更新（${loc.label}）`;
-    renderDaysView();
-  } catch (e) {
-    if (status) status.textContent = "查詢失敗，請確認城市名稱或網路連線。";
+    if (data.daily && data.daily.time && data.daily.time.length) {
+      day.weatherCache = {
+        lat: stop.lat, lng: stop.lng, code: data.daily.weathercode[0],
+        tmax: data.daily.temperature_2m_max[0], tmin: data.daily.temperature_2m_min[0], fetchedAt: Date.now(),
+      };
+      return true;
+    }
+  } catch (e) { /* 靜默失敗，該天就先不顯示天氣 */ }
+  return false;
+}
+async function autoFetchTripWeather(trip) {
+  let changed = false;
+  for (const day of trip.days) {
+    if (!day.date) continue;
+    const stop = firstLocatableStop(day);
+    if (!stop) continue;
+    const stale = !day.weatherCache || Date.now() - day.weatherCache.fetchedAt > 6 * 3600 * 1000 || day.weatherCache.lat !== stop.lat || day.weatherCache.lng !== stop.lng;
+    if (!stale) continue;
+    const ok = await fetchWeatherForDay(day);
+    if (ok) changed = true;
   }
+  if (changed) { saveJournal(); renderDaysView(); }
 }
 function weatherIconFor(code) {
   if (code === 0) return "☀️";
@@ -626,10 +681,6 @@ function weatherIconFor(code) {
   if ([71,73,75,77,85,86].includes(code)) return "❄️";
   if ([95,96,99].includes(code)) return "⛈️";
   return "🌡️";
-}
-function weatherForDate(trip, isoDate) {
-  if (!isoDate || !trip.weatherCache) return null;
-  return trip.weatherCache.days.find((d) => d.date === isoDate) || null;
 }
 
 /* ===================== 確認信自動辨識（best-effort） ===================== */
@@ -694,7 +745,7 @@ function openTrip(id) {
   renderLogistics();
   renderSettings();
   const trip = currentTrip();
-  if (trip.weatherCity && (!trip.weatherCache || Date.now() - trip.weatherCache.fetchedAt > 6 * 3600 * 1000)) fetchWeatherForTrip();
+  autoFetchTripWeather(trip);
   if (trip.syncCode) subscribeTripSync(trip);
   else unsubscribeTripSync();
 }
@@ -947,6 +998,26 @@ function renderSingleDay() {
     daySortableInstance = new window.Sortable(roadInner, { handle: ".drag-handle", animation: 150, onEnd: () => syncStopOrderFromDOM(day, roadInner) });
   }
 
+  if (day.stops.length > 1) {
+    const toolRow = el(`<div class="day-tools"></div>`);
+    const routeBtn = el(`<button class="btn btn--outline btn--small">🗺️ 開啟今日路線圖</button>`);
+    routeBtn.addEventListener("click", () => {
+      const url = buildDayRouteUrl(day, trip);
+      if (url) window.open(url, "_blank", "noopener");
+    });
+    const calcBtn = el(`<button class="btn btn--outline btn--small">🧭 自動計算車程</button>`);
+    const statusP = el(`<p class="field-hint" style="margin-top:6px;"></p>`);
+    calcBtn.addEventListener("click", async () => {
+      calcBtn.disabled = true;
+      await calcDriveTimesForDay(day, trip, statusP);
+      calcBtn.disabled = false;
+    });
+    toolRow.appendChild(routeBtn);
+    toolRow.appendChild(calcBtn);
+    road.appendChild(toolRow);
+    road.appendChild(statusP);
+  }
+
   const addBtn = el(`<button class="btn btn--ghost">＋ 新增行程點</button>`);
   addBtn.addEventListener("click", () => openStopForm(day));
   road.appendChild(addBtn);
@@ -981,7 +1052,7 @@ function renderFullItinerary() {
 
   trip.days.forEach((day) => {
     const section = el(`<div class="full-day-section"></div>`);
-    const weather = weatherForDate(trip, day.date);
+    const weather = day.weatherCache;
     const weatherHtml = weather ? `<span class="weather-badge">${weatherIconFor(weather.code)} ${Math.round(weather.tmax)}°/${Math.round(weather.tmin)}°</span>` : "";
     section.appendChild(el(`<div class="full-day-header">${escapeHtml(day.label)}${day.date ? " · " + formatDateDisplay(day.date) : ""} ${weatherHtml}</div>`));
 
@@ -1016,7 +1087,7 @@ function renderFullItinerary() {
     road.appendChild(section);
   });
 
-  if (!trip.weatherCity) road.appendChild(el(`<div class="empty-hint">想在這裡看到每天的天氣預報嗎？到 ⚙️ 設定填入查詢城市即可。</div>`));
+  if (!trip.days.some((d) => firstLocatableStop(d))) road.appendChild(el(`<div class="empty-hint">想在這裡看到每天的天氣預報嗎？新增行程點時用 Google 地圖搜尋選一下真實地標，系統就會自動抓當地當天的天氣。</div>`));
 }
 
 function syncStopOrderFromDOM(day, container) {
@@ -1038,7 +1109,7 @@ function openStopForm(day) {
       <p class="field-hint" id="place-hint"></p>
     </div>
     <div class="field"><label>標籤（可複選，選填）</label><div class="tag-check-row">${tagChecks}</div></div>
-    <div class="field"><label>與前一站的車程（選填）</label><input id="f-drive" placeholder="例如 45分" /></div>
+    <div class="field"><label>與前一站的車程（選填，也可以全部新增完後在行程頁一鍵自動計算）</label><input id="f-drive" placeholder="留空之後可自動計算" /></div>
     <div class="field"><label>備註</label><textarea id="f-note" placeholder="營業時間、門票、注意事項..."></textarea></div>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>取消</button>
@@ -1046,15 +1117,19 @@ function openStopForm(day) {
     </div>
   `, (root) => {
     const nameInput = root.querySelector("#f-name");
+    const hint = root.querySelector("#place-hint");
     if (getApiKey()) {
-      root.querySelector("#place-hint").textContent = "輸入關鍵字可搜尋真實地標";
+      hint.textContent = "輸入關鍵字可搜尋真實地標";
       tryAttachPlacesAutocomplete(nameInput, (place) => {
-        placeData = { placeId: place.place_id, address: place.formatted_address || "" };
+        const loc = place.geometry && place.geometry.location;
+        placeData = { placeId: place.place_id, address: place.formatted_address || "", lat: loc ? loc.lat() : null, lng: loc ? loc.lng() : null };
         nameInput.value = place.name || nameInput.value;
-        { const ph = root.querySelector("#place-hint"); ph.textContent = "✓ 已鎖定地標：" + (place.formatted_address || ""); ph.classList.add("field-hint--ok"); }
-      });
+        hint.textContent = "✓ 已鎖定地標：" + (place.formatted_address || "");
+        hint.classList.remove("field-hint--warn");
+        hint.classList.add("field-hint--ok");
+      }, (msg) => { hint.textContent = msg; hint.classList.add("field-hint--warn"); });
     } else {
-      root.querySelector("#place-hint").textContent = "💡 想用 Google 地圖搜尋真實地標嗎？回首頁點右上角 🔑 設定金鑰即可啟用";
+      hint.textContent = "💡 想用 Google 地圖搜尋真實地標嗎？回首頁點右上角 🔑 設定金鑰即可啟用";
     }
     root.querySelector("[data-save]").addEventListener("click", () => {
       const name = nameInput.value.trim();
@@ -1064,10 +1139,59 @@ function openStopForm(day) {
         id: uid(), time: root.querySelector("#f-time").value.trim(), name, tags,
         drive: root.querySelector("#f-drive").value.trim(), note: root.querySelector("#f-note").value.trim(),
         placeId: placeData?.placeId || null, address: placeData?.address || "",
+        lat: placeData?.lat ?? null, lng: placeData?.lng ?? null,
       });
       saveJournal(); renderDaysView(); closeModal();
     });
   });
+}
+
+function travelModeForTrip(trip) { return trip.transport === "大眾運輸" ? "TRANSIT" : "DRIVING"; }
+
+function buildDayRouteUrl(day, trip) {
+  if (day.stops.length < 2) return null;
+  const first = day.stops[0], last = day.stops[day.stops.length - 1];
+  const mid = day.stops.slice(1, -1);
+  const params = new URLSearchParams();
+  params.set("api", "1");
+  params.set("origin", first.name);
+  if (first.placeId) params.set("origin_place_id", first.placeId);
+  params.set("destination", last.name);
+  if (last.placeId) params.set("destination_place_id", last.placeId);
+  if (mid.length) params.set("waypoints", mid.map((s) => s.name).join("|"));
+  params.set("travelmode", travelModeForTrip(trip).toLowerCase());
+  return "https://www.google.com/maps/dir/?" + params.toString();
+}
+
+async function calcDriveTimesForDay(day, trip, statusEl) {
+  if (!(window.google && window.google.maps)) {
+    if (statusEl) statusEl.textContent = "地圖服務尚未載入，請稍候幾秒再試一次（需要先設定好 Google Maps 金鑰）。";
+    return;
+  }
+  if (day.stops.length < 2) return;
+  if (statusEl) statusEl.textContent = "計算中...";
+  const service = new window.google.maps.DirectionsService();
+  const mode = window.google.maps.TravelMode[travelModeForTrip(trip)];
+  let okCount = 0, failCount = 0;
+  for (let i = 1; i < day.stops.length; i++) {
+    const origin = day.stops[i - 1];
+    const dest = day.stops[i];
+    try {
+      const result = await new Promise((resolve, reject) => {
+        service.route({
+          origin: origin.placeId ? { placeId: origin.placeId } : origin.name,
+          destination: dest.placeId ? { placeId: dest.placeId } : dest.name,
+          travelMode: mode,
+        }, (res, status) => { if (status === "OK") resolve(res); else reject(status); });
+      });
+      const leg = result.routes[0].legs[0];
+      dest.drive = leg.duration.text;
+      okCount++;
+    } catch (e) { failCount++; }
+  }
+  saveJournal();
+  renderSingleDay();
+  if (statusEl) statusEl.textContent = failCount ? `已計算 ${okCount} 段，${failCount} 段查詢失敗（可能是地點名稱不夠精確，建議用地圖搜尋選過的地點會更準）。` : `已自動計算 ${okCount} 段車程時間。`;
 }
 
 /* ===================== 記帳（含預算 + 分帳結算） ===================== */
@@ -1578,22 +1702,32 @@ function openLodgingForm() {
   });
 }
 
+const TRANSPORT_FIELD_CONFIG = {
+  "租車": { titleLabel: "租車公司／車型（選填）", titlePh: "例如：Toyota Rent a Car・Yaris", fromLabel: "取車地點", fromPh: "例如：小松機場租車櫃檯", toLabel: "還車地點", toPh: "例如：小松機場租車櫃檯", depLabel: "取車時間", arrLabel: "還車時間", showArr: true },
+  "計程車/叫車": { titleLabel: "叫車平台（選填）", titlePh: "例如：GO・Uber", fromLabel: "上車地點", fromPh: "例如：飯店門口", toLabel: "下車地點", toPh: "例如：機場第二航廈", depLabel: "預估時間（選填）", arrLabel: "", showArr: false },
+};
+const DEFAULT_TRANSPORT_CONFIG = { titleLabel: "名稱／班次（選填）", titlePh: "例如：新幹線 のぞみ 123 號", fromLabel: "出發地", fromPh: "例如：名古屋站", toLabel: "抵達地", toPh: "例如：高山站", depLabel: "出發時間", arrLabel: "抵達時間", showArr: true };
+function getTransportConfig(type) { return TRANSPORT_FIELD_CONFIG[type] || DEFAULT_TRANSPORT_CONFIG; }
+
+function transportFieldsHtml(type) {
+  const c = getTransportConfig(type);
+  return `
+    <div class="field"><label>${c.titleLabel}</label><input id="f-title" placeholder="${c.titlePh}" /></div>
+    <div class="field"><label>${c.fromLabel}</label><input id="f-from" placeholder="${c.fromPh}" autocomplete="off" /></div>
+    <div class="field"><label>${c.depLabel}</label><input id="f-dep-time" placeholder="09:00" /></div>
+    ${c.showArr ? `<div class="field"><label>${c.toLabel}</label><input id="f-to" placeholder="${c.toPh}" autocomplete="off" /></div>
+    <div class="field"><label>${c.arrLabel}</label><input id="f-arr-time" placeholder="11:30" /></div>` : `<div class="field"><label>${c.toLabel}</label><input id="f-to" placeholder="${c.toPh}" autocomplete="off" /></div>`}
+  `;
+}
+
 function openTransportForm() {
   const trip = currentTrip();
   const typeOpts = TRANSPORT_TYPES.map((t) => `<option value="${t}">${t}</option>`).join("");
   openModal(`
     <h3>新增交通資訊</h3>
     <div class="field"><label>類型</label><select id="f-type">${typeOpts}</select></div>
-    <div class="field"><label>名稱／班次（選填）</label><input id="f-title" placeholder="例如：Nagoya Rent-a-Car / 新幹線 のぞみ 123 號" /></div>
+    <div id="transportFields"></div>
     <div class="field"><label>日期（選填，填了會顯示在整合行程表當天）</label><input id="f-date" type="date" /></div>
-    <div class="settings-row">
-      <div class="field"><label>出發地</label><input id="f-from" placeholder="例如：名古屋站" autocomplete="off" /></div>
-      <div class="field"><label>出發時間</label><input id="f-dep-time" placeholder="09:00" /></div>
-    </div>
-    <div class="settings-row">
-      <div class="field"><label>抵達地</label><input id="f-to" placeholder="例如：高山站" autocomplete="off" /></div>
-      <div class="field"><label>抵達時間</label><input id="f-arr-time" placeholder="11:30" /></div>
-    </div>
     <div class="field"><label>確認碼（選填）</label><input id="f-code" placeholder="訂位/租車確認碼" /></div>
     <div class="field"><label>備註</label><textarea id="f-note" placeholder="選填"></textarea></div>
     <div class="modal-actions">
@@ -1601,17 +1735,36 @@ function openTransportForm() {
       <button class="btn btn--primary" data-save>儲存</button>
     </div>
   `, (root) => {
-    const fromInput = root.querySelector("#f-from");
-    const toInput = root.querySelector("#f-to");
-    if (getApiKey()) {
-      tryAttachPlacesAutocomplete(fromInput, (place) => { fromInput.value = place.name || place.formatted_address || fromInput.value; });
-      tryAttachPlacesAutocomplete(toInput, (place) => { toInput.value = place.name || place.formatted_address || toInput.value; });
+    const fieldsWrap = root.querySelector("#transportFields");
+    function attachAutocomplete() {
+      const fromInput = root.querySelector("#f-from");
+      const toInput = root.querySelector("#f-to");
+      if (getApiKey()) {
+        if (fromInput) tryAttachPlacesAutocomplete(fromInput, (place) => { fromInput.value = place.name || place.formatted_address || fromInput.value; });
+        if (toInput) tryAttachPlacesAutocomplete(toInput, (place) => { toInput.value = place.name || place.formatted_address || toInput.value; });
+      }
     }
+    function renderFields(type) {
+      const prevValues = { title: root.querySelector("#f-title")?.value, from: root.querySelector("#f-from")?.value, to: root.querySelector("#f-to")?.value, dep: root.querySelector("#f-dep-time")?.value, arr: root.querySelector("#f-arr-time")?.value };
+      fieldsWrap.innerHTML = transportFieldsHtml(type);
+      if (prevValues.title && root.querySelector("#f-title")) root.querySelector("#f-title").value = prevValues.title;
+      if (prevValues.from && root.querySelector("#f-from")) root.querySelector("#f-from").value = prevValues.from;
+      if (prevValues.to && root.querySelector("#f-to")) root.querySelector("#f-to").value = prevValues.to;
+      if (prevValues.dep && root.querySelector("#f-dep-time")) root.querySelector("#f-dep-time").value = prevValues.dep;
+      if (prevValues.arr && root.querySelector("#f-arr-time")) root.querySelector("#f-arr-time").value = prevValues.arr;
+      attachAutocomplete();
+    }
+    renderFields(root.querySelector("#f-type").value);
+    root.querySelector("#f-type").addEventListener("change", (e) => renderFields(e.target.value));
+
     root.querySelector("[data-save]").addEventListener("click", () => {
+      const fromInput = root.querySelector("#f-from");
+      const toInput = root.querySelector("#f-to");
+      const arrInput = root.querySelector("#f-arr-time");
       trip.transportItems.push({
-        id: uid(), type: root.querySelector("#f-type").value, title: root.querySelector("#f-title").value.trim(),
-        date: root.querySelector("#f-date").value, from: fromInput.value.trim(), to: toInput.value.trim(),
-        depTime: root.querySelector("#f-dep-time").value.trim(), arrTime: root.querySelector("#f-arr-time").value.trim(),
+        id: uid(), type: root.querySelector("#f-type").value, title: (root.querySelector("#f-title")?.value || "").trim(),
+        date: root.querySelector("#f-date").value, from: (fromInput?.value || "").trim(), to: (toInput?.value || "").trim(),
+        depTime: (root.querySelector("#f-dep-time")?.value || "").trim(), arrTime: (arrInput?.value || "").trim(),
         bookingCode: root.querySelector("#f-code").value.trim(), note: root.querySelector("#f-note").value.trim(),
       });
       saveJournal(); renderLogistics(); renderDaysView(); closeModal();
@@ -1692,12 +1845,6 @@ function renderSettings() {
         <button class="btn btn--ghost" id="s-add-day" style="margin-top:6px;">＋ 新增一天</button>
       </div>
       <div class="settings-field">
-        <label>天氣查詢城市（選填，用於整合行程表的每日天氣預報）</label>
-        <input id="s-weather-city" value="${escapeHtml(trip.weatherCity||"")}" placeholder="例如：Tokyo、Osaka、Okinawa" />
-        <button class="btn btn--ghost" id="s-weather-fetch" style="margin-top:6px;">🔄 更新天氣預報</button>
-        <p class="field-hint" id="weatherStatus">${trip.weatherCache ? `上次更新：${escapeHtml(trip.weatherCache.city)}（${new Date(trip.weatherCache.fetchedAt).toLocaleString("zh-TW")}）` : "尚未查詢"}</p>
-      </div>
-      <div class="settings-field">
         <label>總預算（${escapeHtml(trip.currency.name||"當地貨幣")}，不填代表不限制）</label>
         <input type="number" id="s-total-budget" value="${budget.total != null ? budget.total : ""}" placeholder="例如 30000" />
       </div>
@@ -1772,16 +1919,9 @@ function renderSettings() {
     const t = currentTrip();
     const last = t.days[t.days.length - 1];
     const nextDate = last && last.date ? addDaysISO(last.date, 1) : "";
-    t.days.push({ id: uid(), label: `Day ${t.days.length + 1}`, date: nextDate, journal: "", stops: [] });
+    t.days.push({ id: uid(), label: `Day ${t.days.length + 1}`, date: nextDate, journal: "", stops: [], weatherCache: null });
     t.dayCount = t.days.length;
     saveJournal(); renderSettings(); renderDaysView(); renderTripHeader();
-  });
-
-  form.querySelector("#s-weather-fetch").addEventListener("click", () => {
-    const t = currentTrip();
-    t.weatherCity = form.querySelector("#s-weather-city").value.trim();
-    saveJournal();
-    fetchWeatherForTrip();
   });
 
   form.querySelector("#s-export").addEventListener("click", () => exportTrip(currentTrip()));
@@ -1797,7 +1937,6 @@ function renderSettings() {
       if (entry) { t.country = entry.country; t.flag = entry.flag; t.currency = { code: entry.code, symbol: entry.symbol, name: entry.name }; }
     }
     t.transport = form.querySelector("#s-transport").value;
-    t.weatherCity = form.querySelector("#s-weather-city").value.trim();
 
     const totalVal = form.querySelector("#s-total-budget").value;
     if (!t.budget) t.budget = emptyBudget();
@@ -1874,10 +2013,6 @@ function initInstallBanner() {
 
 /* ===================== 初始化 ===================== */
 function init() {
-  applyTheme(getTheme());
-  $all(".theme-toggle-btn").forEach((b) => { b.textContent = getTheme() === "dark" ? "☀️" : "🌙"; });
-  $all(".theme-toggle-btn").forEach((b) => b.addEventListener("click", toggleTheme));
-
   initFirebaseIfConfigured();
   initTabbar();
   initFormTriggers();

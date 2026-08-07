@@ -1,35 +1,21 @@
 :root {
-  --bg: #F4F5EF;
-  --ink: #1B2B23;
-  --ink-soft: #55625A;
-  --green: #0B6E4F;
-  --green-deep: #084F39;
-  --green-mist: #E6EEE8;
-  --orange: #E8622C;
-  --orange-mist: #FBEAE1;
-  --gold: #E8B33D;
+  /* 和風配色：藍染（藍色）× 朱色 × 生成り紙 */
+  --bg: #F6F2E7;
+  --ink: #2B2621;
+  --ink-soft: #85795F;
+  --green: #2B4C6F;
+  --green-deep: #1B3350;
+  --green-mist: #E7ECF1;
+  --orange: #C1440E;
+  --orange-mist: #F8E8DE;
+  --gold: #C9A227;
   --card: #FFFFFF;
-  --line: #DEDACC;
+  --line: #E1D8C3;
   --radius: 14px;
-  --shadow: 0 2px 10px rgba(27, 43, 35, 0.08);
-  --font-display: "Zen Kaku Gothic New", "Noto Sans TC", sans-serif;
+  --shadow: 0 2px 10px rgba(43, 38, 33, 0.08);
+  --font-display: "Shippori Mincho", "Noto Serif TC", "Noto Sans TC", serif;
   --font-body: "Noto Sans TC", "Zen Kaku Gothic New", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
-}
-
-[data-theme="dark"] {
-  --bg: #10151A;
-  --ink: #EDEFF1;
-  --ink-soft: #9AA1A8;
-  --green: #1FA06A;
-  --green-deep: #35CC8C;
-  --green-mist: #172621;
-  --orange: #FF8F63;
-  --orange-mist: #2B2019;
-  --gold: #E8B33D;
-  --card: #1A2024;
-  --line: #2A3138;
-  --shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
 }
 
 * { box-sizing: border-box; }
@@ -46,6 +32,8 @@ html, body {
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
   -webkit-tap-highlight-color: transparent;
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 button {
@@ -58,15 +46,26 @@ body {
   padding-bottom: calc(72px + env(safe-area-inset-bottom));
   min-height: 100dvh;
   overscroll-behavior-y: contain;
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 button, input, textarea, select {
   font-family: inherit;
+  max-width: 100%;
+}
+
+img, svg { max-width: 100%; }
+
+h1, h2, h3, p, span, a, .card, .modal-sheet {
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 /* ---------- Screens ---------- */
 .screen { display: none; }
-.screen.active { display: block; }
+.screen.active { display: block; max-width: 100vw; overflow-x: hidden; }
+
 
 /* ---------- Header (highway sign) ---------- */
 .route-header {
@@ -98,7 +97,7 @@ button, input, textarea, select {
 
 .countdown {
   background: var(--gold);
-  color: #084F39;
+  color: var(--green-deep);
   font-weight: 700;
   padding: 3px 10px;
   border-radius: 999px;
@@ -416,6 +415,13 @@ main#views {
   padding: 20px;
   text-align: center;
 }
+.day-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 2px;
+}
+.day-tools .btn { flex: 1 1 auto; margin-top: 0; white-space: nowrap; }
 
 /* ---------- Packing ---------- */
 .pack-group__title {
@@ -478,7 +484,7 @@ main#views {
   opacity: 0.85;
   margin-top: 4px;
 }
-.expense-row { display: flex; align-items: center; gap: 10px; }
+.expense-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 /* ---------- Members & Settlement ---------- */
 .members-card__title { font-weight: 700; font-size: 13.5px; margin: 0 0 10px; }
@@ -607,6 +613,7 @@ main#views {
 .field textarea { resize: vertical; min-height: 60px; }
 .field-hint { font-size: 11px; color: var(--ink-soft); margin: 4px 0 0; min-height: 14px; }
 .field-hint--ok { color: var(--green-deep); }
+.field-hint--warn { color: var(--orange); }
 .radio-row { display: flex; gap: 8px; }
 .radio-row label {
   flex: 1; text-align: center; border: 1.5px solid var(--line); border-radius: 10px;
@@ -659,7 +666,8 @@ main#views {
 
 /* ---------- Logistics (flights / lodging / transport) ---------- */
 .logistics-card { display: flex; flex-direction: column; gap: 4px; }
-.logistics-card__head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+.logistics-card__head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; flex-wrap: wrap; }
+.logistics-card__head > span:last-child { min-width: 0; overflow-wrap: break-word; }
 .logistics-tag {
   font-size: 10.5px; font-weight: 700; background: var(--green); color: #fff;
   padding: 2px 8px; border-radius: 999px; flex: none;
