@@ -443,17 +443,63 @@ function loadGoogleMaps(key) {
   });
   return gmapsLoadPromise;
 }
+let placesServiceHost = null;
+function attachCustomAutocomplete(input, onPlace) {
+  if (!(window.google && window.google.maps && window.google.maps.places)) return;
+  const acService = new window.google.maps.places.AutocompleteService();
+  if (!placesServiceHost) placesServiceHost = document.createElement("div");
+  const placesService = new window.google.maps.places.PlacesService(placesServiceHost);
+
+  const box = document.createElement("div");
+  box.className = "places-suggestions";
+  box.hidden = true;
+  input.insertAdjacentElement("afterend", box);
+
+  let debounceTimer = null;
+  function hideBox() { box.hidden = true; box.innerHTML = ""; }
+
+  input.addEventListener("input", () => {
+    clearTimeout(debounceTimer);
+    const value = input.value.trim();
+    if (!value) { hideBox(); return; }
+    debounceTimer = setTimeout(() => {
+      acService.getPlacePredictions({ input: value, language: "zh-TW" }, (predictions, status) => {
+        box.innerHTML = "";
+        if (status !== window.google.maps.places.PlacesServiceStatus.OK || !predictions || !predictions.length) { hideBox(); return; }
+        predictions.slice(0, 6).forEach((p) => {
+          const mainText = (p.structured_formatting && p.structured_formatting.main_text) || p.description;
+          const subText = (p.structured_formatting && p.structured_formatting.secondary_text) || "";
+          const item = el(`
+            <button type="button" class="places-suggestion-item">
+              <span class="psi-main">${escapeHtml(mainText)}</span>
+              ${subText ? `<span class="psi-sub">${escapeHtml(subText)}</span>` : ""}
+            </button>
+          `);
+          item.addEventListener("click", () => {
+            placesService.getDetails({ placeId: p.place_id, fields: ["place_id", "name", "formatted_address", "geometry"] }, (place, detStatus) => {
+              if (detStatus === window.google.maps.places.PlacesServiceStatus.OK && place) {
+                input.value = place.name || mainText;
+                onPlace(place);
+              }
+              hideBox();
+            });
+          });
+          box.appendChild(item);
+        });
+        box.hidden = false;
+      });
+    }, 250);
+  });
+  input.addEventListener("blur", () => { setTimeout(hideBox, 200); });
+}
+
 function tryAttachPlacesAutocomplete(input, onPlace, onStatus) {
   const key = getApiKey();
   if (!key || !input) return;
   loadGoogleMaps(key).then(() => {
     if (!(window.google && window.google.maps && window.google.maps.places)) return;
     try {
-      const ac = new window.google.maps.places.Autocomplete(input, { fields: ["place_id", "name", "formatted_address", "geometry"] });
-      ac.addListener("place_changed", () => {
-        const place = ac.getPlace();
-        if (place && place.place_id) onPlace(place);
-      });
+      attachCustomAutocomplete(input, onPlace);
     } catch (e) { /* 靜默失敗 */ }
   }).catch((err) => {
     if (onStatus) {
