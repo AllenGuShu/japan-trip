@@ -523,6 +523,25 @@ function disableSync(trip) {
   renderTripHeader();
 }
 
+function buildSyncShareLink(code) {
+  const url = new URL(location.href);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("join", code);
+  return url.toString();
+}
+
+async function joinTripByCode(code) {
+  const snap = await db.collection("trips").doc(code).get();
+  if (!snap.exists) throw new Error("not-found");
+  const remote = snap.data();
+  const existingIdx = JOURNAL.trips.findIndex((t) => t.syncCode === code);
+  if (existingIdx >= 0) JOURNAL.trips[existingIdx] = remote;
+  else JOURNAL.trips.push(remote);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(JOURNAL));
+  return remote;
+}
+
 function openJoinSyncForm() {
   if (!syncEnabled) { alert("尚未設定雲端同步功能，請聯絡開發者設定 Firebase（詳見 README）。"); return; }
   openModal(`
@@ -540,22 +559,37 @@ function openJoinSyncForm() {
       const btn = root.querySelector("[data-save]");
       btn.textContent = "加入中...";
       try {
-        const snap = await db.collection("trips").doc(code).get();
-        if (!snap.exists) { alert("找不到這個代碼，請確認是否正確。"); btn.textContent = "加入"; return; }
-        const remote = snap.data();
-        const existingIdx = JOURNAL.trips.findIndex((t) => t.syncCode === code);
-        if (existingIdx >= 0) JOURNAL.trips[existingIdx] = remote;
-        else JOURNAL.trips.push(remote);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(JOURNAL));
+        const remote = await joinTripByCode(code);
         closeModal();
         renderHome();
         openTrip(remote.id);
       } catch (e) {
-        alert("加入失敗，請確認網路連線。");
+        alert("找不到這個代碼，請確認是否正確，或檢查網路連線。");
         btn.textContent = "加入";
       }
     });
   });
+}
+
+async function tryAutoJoinFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const code = params.get("join");
+  if (!code) return false;
+  history.replaceState(null, "", location.pathname);
+  if (!syncEnabled) {
+    alert("這個連結需要共同編輯功能，但網站尚未設定雲端同步（開發者需先設定 Firebase）。");
+    return true;
+  }
+  openModal(`<h3>🔗 加入共編旅遊</h3><p style="font-size:13px;color:var(--ink-soft);">正在加入，請稍候...</p>`);
+  try {
+    const remote = await joinTripByCode(code.toUpperCase());
+    closeModal();
+    openTrip(remote.id);
+  } catch (e) {
+    closeModal();
+    alert("這個連結已失效，請跟朋友要一組新的連結或代碼。");
+  }
+  return true;
 }
 
 /* ===================== 天氣（Open-Meteo，免金鑰） ===================== */
@@ -1679,7 +1713,9 @@ function renderSettings() {
       ${!syncEnabled ? `
         <p class="field-hint">尚未設定雲端同步功能（需要開發者設定 Firebase），目前僅能用「匯出/匯入檔案」的方式分享，見下方。</p>
       ` : trip.syncCode ? `
-        <p class="field-hint">把這組代碼分享給朋友，他們到首頁「🔗 加入共編旅遊」輸入即可一起即時編輯行程與記帳：</p>
+        <p class="field-hint">把連結傳給朋友，他們點開就會自動加入這趟旅遊，不用輸入任何東西：</p>
+        <button class="btn btn--primary btn--block" id="s-share-link">🔗 分享連結給朋友</button>
+        <p class="field-hint" style="margin-top:10px;">或者也可以只給代碼，讓對方自己到首頁「加入共編旅遊」輸入：</p>
         <p class="sync-code">${trip.syncCode}</p>
         <button class="btn btn--ghost" id="s-copy-code">📋 複製代碼</button>
         <button class="btn btn--danger" id="s-stop-sync" style="margin-top:8px;">停止同步（僅此裝置退出，其他人不受影響）</button>
@@ -1698,6 +1734,18 @@ function renderSettings() {
     form.querySelector("#s-start-sync").addEventListener("click", () => enableSync(currentTrip()));
   }
   if (syncEnabled && trip.syncCode) {
+    form.querySelector("#s-share-link").addEventListener("click", async () => {
+      const link = buildSyncShareLink(trip.syncCode);
+      const btn = form.querySelector("#s-share-link");
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: `一起編輯「${trip.title}」`, text: "點這個連結加入我們的旅遊行程，一起編輯行程和記帳：", url: link });
+          return;
+        } catch (e) { /* 使用者取消分享，或裝置不支援，改用複製 */ }
+      }
+      try { await navigator.clipboard.writeText(link); btn.textContent = "已複製連結 ✓"; } catch (e) { btn.textContent = "複製失敗，請手動複製"; }
+      setTimeout(() => { btn.textContent = "🔗 分享連結給朋友"; }, 1800);
+    });
     form.querySelector("#s-copy-code").addEventListener("click", async () => {
       try { await navigator.clipboard.writeText(trip.syncCode); } catch (e) { /* ignore */ }
       const btn = form.querySelector("#s-copy-code");
@@ -1837,7 +1885,11 @@ function init() {
   renderHome();
 
   const params = new URLSearchParams(location.search);
-  if (params.get("action") === "new") { openTripForm(); history.replaceState(null, "", "./"); }
+  if (params.get("join")) {
+    tryAutoJoinFromUrl();
+  } else if (params.get("action") === "new") {
+    openTripForm(); history.replaceState(null, "", "./");
+  }
 
   $("#backHome").addEventListener("click", goHome);
   $("#openSettings").addEventListener("click", () => switchView("settings"));
