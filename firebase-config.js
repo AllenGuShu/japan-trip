@@ -2,22 +2,14 @@
  * Firebase 設定檔
  * ------------------------------------------------------------
  * 這裡是「共同編輯」功能需要的雲端資料庫設定。
- *
- * 還沒申請 Firebase 之前，請不要動這個檔案 —— 保持空白，
- * App 的其他功能完全不受影響，只是「共同編輯」會顯示尚未設定。
- *
- * 申請好 Firebase 專案、拿到設定值之後，把下面六個空字串
- * 換成 Firebase 後台「專案設定 → 你的應用程式 → SDK 設定和設定」
- * 那頁給你的對應數值就完成了，存檔、重新部署即可啟用。
- *
- * 詳細申請步驟請看 README.md 裡的「共同編輯功能設定教學」。
+ * 已經填入 trip-journal 這個 Firebase 專案的設定值。
  * ------------------------------------------------------------
  */
 window.FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: "",
+  apiKey: "AIzaSyC6P-MMlGEJokW_jigf5iAKftJ4_zbzj6s",
+  authDomain: "trip-journal-9e64b.firebaseapp.com",
+  projectId: "trip-journal-9e64b",
+  storageBucket: "trip-journal-9e64b.firebasestorage.app",
+  messagingSenderId: "212104949023",
+  appId: "1:212104949023:web:dab642786fafeac798d42a",
 };
