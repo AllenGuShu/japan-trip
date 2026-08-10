@@ -1032,12 +1032,14 @@ function renderSingleDay() {
             ${stop.note ? `<p class="stop-note">${escapeHtml(stop.note)}</p>` : ""}
             <div class="spot-card__actions" style="margin-top:8px;">
               <a class="map-link" target="_blank" rel="noopener" href="${mapUrlForPlace(stop.name, stop.placeId)}">在地圖開啟 ↗</a>
+              <button class="btn btn--outline btn--small" data-edit>✏️ 編輯</button>
               <button class="btn btn--danger" data-del>刪除</button>
             </div>
           </div>
         </div>
       `);
       card.querySelector("[data-del]").addEventListener("click", () => { day.stops = day.stops.filter((x) => x.id !== stop.id); saveJournal(); renderSingleDay(); });
+      card.querySelector("[data-edit]").addEventListener("click", () => openStopForm(day, stop));
       roadInner.appendChild(card);
     });
   }
@@ -1146,29 +1148,34 @@ function syncStopOrderFromDOM(day, container) {
   if (reordered.length === day.stops.length) { day.stops = reordered; saveJournal(); renderSingleDay(); }
 }
 
-function openStopForm(day) {
-  let placeData = null;
-  const tagChecks = STOP_TAGS.map((t) => `<label class="tag-check"><input type="checkbox" value="${t}" /><span>${t}</span></label>`).join("");
+function openStopForm(day, existingStop = null) {
+  const isEdit = !!existingStop;
+  let placeData = isEdit ? { placeId: existingStop.placeId, address: existingStop.address, lat: existingStop.lat, lng: existingStop.lng } : null;
+  const tagChecks = STOP_TAGS.map((t) => {
+    const checked = isEdit && (existingStop.tags || []).includes(t) ? "checked" : "";
+    return `<label class="tag-check"><input type="checkbox" value="${t}" ${checked} /><span>${t}</span></label>`;
+  }).join("");
   openModal(`
-    <h3>新增行程點 — ${escapeHtml(day.label)}</h3>
-    <div class="field"><label>時間（選填，僅顯示用）</label><input id="f-time" placeholder="例如 09:30" /></div>
+    <h3>${isEdit ? "編輯行程點" : "新增行程點"} — ${escapeHtml(day.label)}</h3>
+    <div class="field"><label>時間（選填，僅顯示用）</label><input id="f-time" placeholder="例如 09:30" value="${escapeHtml(existingStop?.time || "")}" /></div>
     <div class="field">
       <label>地點名稱</label>
-      <input id="f-name" placeholder="例如：新穗高纜車" autocomplete="off" />
-      <p class="field-hint" id="place-hint"></p>
+      <input id="f-name" placeholder="例如：新穗高纜車" autocomplete="off" value="${escapeHtml(existingStop?.name || "")}" />
+      <p class="field-hint" id="place-hint">${isEdit && existingStop.address ? "✓ 已鎖定地標：" + escapeHtml(existingStop.address) : ""}</p>
     </div>
     <div class="field"><label>標籤（可複選，選填）</label><div class="tag-check-row">${tagChecks}</div></div>
-    <div class="field"><label>與前一站的車程（選填，也可以全部新增完後在行程頁一鍵自動計算）</label><input id="f-drive" placeholder="留空之後可自動計算" /></div>
-    <div class="field"><label>備註</label><textarea id="f-note" placeholder="營業時間、門票、注意事項..."></textarea></div>
+    <div class="field"><label>與前一站的車程（選填，也可以全部新增完後在行程頁一鍵自動計算）</label><input id="f-drive" placeholder="留空之後可自動計算" value="${escapeHtml(existingStop?.drive || "")}" /></div>
+    <div class="field"><label>備註</label><textarea id="f-note" placeholder="營業時間、門票、注意事項...">${escapeHtml(existingStop?.note || "")}</textarea></div>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>取消</button>
-      <button class="btn btn--primary" data-save>儲存</button>
+      <button class="btn btn--primary" data-save>${isEdit ? "儲存修改" : "儲存"}</button>
     </div>
   `, (root) => {
     const nameInput = root.querySelector("#f-name");
     const hint = root.querySelector("#place-hint");
+    if (isEdit && existingStop.address) hint.classList.add("field-hint--ok");
     if (getApiKey()) {
-      hint.textContent = "輸入關鍵字可搜尋真實地標";
+      if (!hint.textContent) hint.textContent = "輸入關鍵字可搜尋真實地標";
       tryAttachPlacesAutocomplete(nameInput, (place) => {
         const loc = place.geometry && place.geometry.location;
         placeData = { placeId: place.place_id, address: place.formatted_address || "", lat: loc ? loc.lat() : null, lng: loc ? loc.lng() : null };
@@ -1177,19 +1184,24 @@ function openStopForm(day) {
         hint.classList.remove("field-hint--warn");
         hint.classList.add("field-hint--ok");
       }, (msg) => { hint.textContent = msg; hint.classList.add("field-hint--warn"); });
-    } else {
+    } else if (!hint.textContent) {
       hint.textContent = "💡 想用 Google 地圖搜尋真實地標嗎？回首頁點右上角 🔑 設定金鑰即可啟用";
     }
     root.querySelector("[data-save]").addEventListener("click", () => {
       const name = nameInput.value.trim();
       if (!name) return;
       const tags = $all('.tag-check input[type="checkbox"]:checked', root).map((cb) => cb.value);
-      day.stops.push({
-        id: uid(), time: root.querySelector("#f-time").value.trim(), name, tags,
+      const values = {
+        time: root.querySelector("#f-time").value.trim(), name, tags,
         drive: root.querySelector("#f-drive").value.trim(), note: root.querySelector("#f-note").value.trim(),
         placeId: placeData?.placeId || null, address: placeData?.address || "",
         lat: placeData?.lat ?? null, lng: placeData?.lng ?? null,
-      });
+      };
+      if (isEdit) {
+        Object.assign(existingStop, values);
+      } else {
+        day.stops.push({ id: uid(), ...values });
+      }
       saveJournal(); renderDaysView(); closeModal();
     });
   });
@@ -1412,32 +1424,39 @@ function renderExpenses() {
           ${payerText || splitText ? `<div class="expense-row__split">${payerText}${payerText && splitText ? " · " : ""}${splitText}</div>` : ""}
         </div>
         <div class="expense-row__amount">${symbol}${Number(e.amount).toLocaleString()}</div>
+        <button class="btn btn--outline btn--small" data-edit>✏️</button>
         <button class="btn btn--danger" data-del>刪</button>
       </div>
     `);
     row.querySelector("[data-del]").addEventListener("click", () => { trip.expenses = trip.expenses.filter((x) => x.id !== e.id); saveJournal(); renderExpenses(); });
+    row.querySelector("[data-edit]").addEventListener("click", () => openExpenseForm(e));
     list.appendChild(row);
   });
 }
-function openExpenseForm() {
+function openExpenseForm(existingExpense = null) {
+  const isEdit = !!existingExpense;
   const trip = currentTrip();
-  const catOpts = EXPENSE_CATS.map((c) => `<option value="${c.key}">${c.icon} ${c.key}</option>`).join("");
+  const catOpts = EXPENSE_CATS.map((c) => `<option value="${c.key}" ${isEdit && existingExpense.category===c.key?"selected":""}>${c.icon} ${c.key}</option>`).join("");
   const hasMembers = trip.members.length > 0;
-  const payerOpts = trip.members.map((m) => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("");
-  const splitChecks = trip.members.map((m) => `<label class="tag-check"><input type="checkbox" value="${m.id}" checked /><span>${escapeHtml(m.name)}</span></label>`).join("");
+  const payerOpts = trip.members.map((m) => `<option value="${m.id}" ${isEdit && existingExpense.payerId===m.id?"selected":""}>${escapeHtml(m.name)}</option>`).join("");
+  const splitWithSet = isEdit ? new Set(existingExpense.splitWith || []) : null;
+  const splitChecks = trip.members.map((m) => {
+    const checked = isEdit ? (splitWithSet.has(m.id) ? "checked" : "") : "checked";
+    return `<label class="tag-check"><input type="checkbox" value="${m.id}" ${checked} /><span>${escapeHtml(m.name)}</span></label>`;
+  }).join("");
   openModal(`
-    <h3>新增花費</h3>
-    <div class="field"><label>金額（${escapeHtml(trip.currency.name || "當地貨幣")}）</label><input id="f-amount" type="number" placeholder="0" /></div>
+    <h3>${isEdit ? "編輯花費" : "新增花費"}</h3>
+    <div class="field"><label>金額（${escapeHtml(trip.currency.name || "當地貨幣")}）</label><input id="f-amount" type="number" placeholder="0" value="${isEdit ? existingExpense.amount : ""}" /></div>
     <div class="field"><label>類別</label><select id="f-cat">${catOpts}</select></div>
-    <div class="field"><label>項目名稱</label><input id="f-title" placeholder="例如：拉麵晚餐" /></div>
+    <div class="field"><label>項目名稱</label><input id="f-title" placeholder="例如：拉麵晚餐" value="${escapeHtml(existingExpense?.title || "")}" /></div>
     ${hasMembers ? `
     <div class="field"><label>誰付的錢</label><select id="f-payer"><option value="">未指定</option>${payerOpts}</select></div>
     <div class="field"><label>算誰的份（可複選，預設全部）</label><div class="tag-check-row">${splitChecks}</div></div>
     ` : `<p class="field-hint">到下方「👥 分帳成員」新增旅伴，就能標記這筆是誰付的、要算誰的份。</p>`}
-    <div class="field"><label>備註</label><input id="f-note" placeholder="選填" /></div>
+    <div class="field"><label>備註</label><input id="f-note" placeholder="選填" value="${escapeHtml(existingExpense?.note || "")}" /></div>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>取消</button>
-      <button class="btn btn--primary" data-save>儲存</button>
+      <button class="btn btn--primary" data-save>${isEdit ? "儲存修改" : "儲存"}</button>
     </div>
   `, (root) => {
     root.querySelector("[data-save]").addEventListener("click", () => {
@@ -1445,10 +1464,15 @@ function openExpenseForm() {
       if (!amount) return;
       const payerId = hasMembers ? (root.querySelector("#f-payer").value || null) : null;
       const splitWith = hasMembers ? $all('.tag-check input[type="checkbox"]:checked', root).map((cb) => cb.value) : [];
-      trip.expenses.push({
-        id: uid(), amount, category: root.querySelector("#f-cat").value, title: root.querySelector("#f-title").value.trim(),
+      const values = {
+        amount, category: root.querySelector("#f-cat").value, title: root.querySelector("#f-title").value.trim(),
         note: root.querySelector("#f-note").value.trim(), payerId, splitWith,
-      });
+      };
+      if (isEdit) {
+        Object.assign(existingExpense, values);
+      } else {
+        trip.expenses.push({ id: uid(), ...values });
+      }
       saveJournal(); renderExpenses(); closeModal();
     });
   });
@@ -1553,14 +1577,18 @@ function renderLogistics() {
           <p class="logistics-route">${escapeHtml(f.depAirport||"?")} <span class="logistics-time">${escapeHtml(f.depTime||"")}</span> → ${escapeHtml(f.arrAirport||"?")} <span class="logistics-time">${escapeHtml(f.arrTime||"")}</span></p>
           ${f.bookingCode ? `<p class="logistics-meta">訂位代碼：${escapeHtml(f.bookingCode)}</p>` : ""}
           ${f.note ? `<p class="logistics-meta">${escapeHtml(f.note)}</p>` : ""}
-          <button class="btn btn--danger" data-del>刪除</button>
+          <div class="spot-card__actions" style="margin-top:6px;">
+            <button class="btn btn--outline btn--small" data-edit>✏️ 編輯</button>
+            <button class="btn btn--danger" data-del>刪除</button>
+          </div>
         </div>
       `);
       card.querySelector("[data-del]").addEventListener("click", () => { trip.flights = trip.flights.filter((x)=>x.id!==f.id); saveJournal(); renderLogistics(); renderDaysView(); });
+      card.querySelector("[data-edit]").addEventListener("click", () => openFlightForm(f));
       content.appendChild(card);
     });
     const addBtn = el(`<button class="btn btn--ghost">＋ 新增航班</button>`);
-    addBtn.addEventListener("click", openFlightForm);
+    addBtn.addEventListener("click", () => openFlightForm());
     content.appendChild(addBtn);
   }
 
@@ -1577,15 +1605,17 @@ function renderLogistics() {
           ${l.note ? `<p class="logistics-meta">${escapeHtml(l.note)}</p>` : ""}
           <div class="spot-card__actions" style="margin-top:6px;">
             <a class="map-link" target="_blank" rel="noopener" href="${mapUrlForPlace(l.name, l.placeId)}">在地圖開啟 ↗</a>
+            <button class="btn btn--outline btn--small" data-edit>✏️ 編輯</button>
             <button class="btn btn--danger" data-del>刪除</button>
           </div>
         </div>
       `);
       card.querySelector("[data-del]").addEventListener("click", () => { trip.lodging = trip.lodging.filter((x)=>x.id!==l.id); saveJournal(); renderLogistics(); renderDaysView(); });
+      card.querySelector("[data-edit]").addEventListener("click", () => openLodgingForm(l));
       content.appendChild(card);
     });
     const addBtn = el(`<button class="btn btn--ghost">＋ 新增住宿</button>`);
-    addBtn.addEventListener("click", openLodgingForm);
+    addBtn.addEventListener("click", () => openLodgingForm());
     content.appendChild(addBtn);
   }
 
@@ -1599,14 +1629,18 @@ function renderLogistics() {
           ${t.from || t.to ? `<p class="logistics-route">${escapeHtml(t.from||"?")} <span class="logistics-time">${escapeHtml(t.depTime||"")}</span> → ${escapeHtml(t.to||"?")} <span class="logistics-time">${escapeHtml(t.arrTime||"")}</span></p>` : ""}
           ${t.bookingCode ? `<p class="logistics-meta">確認碼：${escapeHtml(t.bookingCode)}</p>` : ""}
           ${t.note ? `<p class="logistics-meta">${escapeHtml(t.note)}</p>` : ""}
-          <button class="btn btn--danger" data-del>刪除</button>
+          <div class="spot-card__actions" style="margin-top:6px;">
+            <button class="btn btn--outline btn--small" data-edit>✏️ 編輯</button>
+            <button class="btn btn--danger" data-del>刪除</button>
+          </div>
         </div>
       `);
       card.querySelector("[data-del]").addEventListener("click", () => { trip.transportItems = trip.transportItems.filter((x)=>x.id!==t.id); saveJournal(); renderLogistics(); renderDaysView(); });
+      card.querySelector("[data-edit]").addEventListener("click", () => openTransportForm(t));
       content.appendChild(card);
     });
     const addBtn = el(`<button class="btn btn--ghost">＋ 新增交通</button>`);
-    addBtn.addEventListener("click", openTransportForm);
+    addBtn.addEventListener("click", () => openTransportForm());
     content.appendChild(addBtn);
   }
 
@@ -1618,14 +1652,16 @@ function renderLogistics() {
       group.items.forEach((item) => {
         total++; if (item.done) done++;
         const row = el(`
-          <label class="card pack-item ${item.done ? "done" : ""}">
+          <div class="card pack-item ${item.done ? "done" : ""}">
             <input type="checkbox" ${item.done ? "checked" : ""} />
             <span>${escapeHtml(item.text)}</span>
+            <button class="btn btn--outline btn--small" data-edit>✏️</button>
             <button class="btn btn--danger" data-del>刪除</button>
-          </label>
+          </div>
         `);
         row.querySelector('input[type="checkbox"]').addEventListener("change", (e) => { item.done = e.target.checked; saveJournal(); renderLogistics(); });
-        row.querySelector("[data-del]").addEventListener("click", (e) => { e.preventDefault(); group.items = group.items.filter((x) => x.id !== item.id); saveJournal(); renderLogistics(); });
+        row.querySelector("[data-edit]").addEventListener("click", () => openPackingItemEditForm(item));
+        row.querySelector("[data-del]").addEventListener("click", () => { group.items = group.items.filter((x) => x.id !== item.id); saveJournal(); renderLogistics(); });
         wrap.appendChild(row);
       });
     });
@@ -1635,6 +1671,24 @@ function renderLogistics() {
     addBtn.addEventListener("click", openPackingForm);
     content.appendChild(addBtn);
   }
+}
+
+function openPackingItemEditForm(item) {
+  openModal(`
+    <h3>編輯項目</h3>
+    <div class="field"><label>項目內容</label><input id="f-text" value="${escapeHtml(item.text)}" /></div>
+    <div class="modal-actions">
+      <button class="btn btn--ghost" data-cancel>取消</button>
+      <button class="btn btn--primary" data-save>儲存修改</button>
+    </div>
+  `, (root) => {
+    root.querySelector("[data-save]").addEventListener("click", () => {
+      const text = root.querySelector("#f-text").value.trim();
+      if (!text) return;
+      item.text = text;
+      saveJournal(); renderLogistics(); closeModal();
+    });
+  });
 }
 
 function smartPasteBlockHtml() {
@@ -1647,81 +1701,88 @@ function smartPasteBlockHtml() {
   `;
 }
 
-function openFlightForm() {
+function openFlightForm(existingFlight = null) {
+  const isEdit = !!existingFlight;
   const trip = currentTrip();
-  const dirOpts = FLIGHT_DIRECTIONS.map((d) => `<option value="${d}">${d}</option>`).join("");
+  const dirOpts = FLIGHT_DIRECTIONS.map((d) => `<option value="${d}" ${isEdit && existingFlight.direction===d?"selected":""}>${d}</option>`).join("");
   openModal(`
-    <h3>新增航班</h3>
-    ${smartPasteBlockHtml()}
+    <h3>${isEdit ? "編輯航班" : "新增航班"}</h3>
+    ${isEdit ? "" : smartPasteBlockHtml()}
     <div class="field"><label>類型</label><select id="f-dir">${dirOpts}</select></div>
-    <div class="field"><label>航空公司</label><input id="f-airline" placeholder="例如：長榮航空" /></div>
-    <div class="field"><label>航班編號</label><input id="f-no" placeholder="例如：BR198" /></div>
-    <div class="field"><label>日期</label><input id="f-date" type="date" /></div>
+    <div class="field"><label>航空公司</label><input id="f-airline" placeholder="例如：長榮航空" value="${escapeHtml(existingFlight?.airline || "")}" /></div>
+    <div class="field"><label>航班編號</label><input id="f-no" placeholder="例如：BR198" value="${escapeHtml(existingFlight?.flightNo || "")}" /></div>
+    <div class="field"><label>日期</label><input id="f-date" type="date" value="${escapeHtml(existingFlight?.date || "")}" /></div>
     <div class="settings-row">
-      <div class="field"><label>出發機場</label><input id="f-dep-ap" placeholder="TPE" /></div>
-      <div class="field"><label>出發時間</label><input id="f-dep-time" placeholder="07:20" /></div>
+      <div class="field"><label>出發機場</label><input id="f-dep-ap" placeholder="TPE" value="${escapeHtml(existingFlight?.depAirport || "")}" /></div>
+      <div class="field"><label>出發時間</label><input id="f-dep-time" placeholder="07:20" value="${escapeHtml(existingFlight?.depTime || "")}" /></div>
     </div>
     <div class="settings-row">
-      <div class="field"><label>抵達機場</label><input id="f-arr-ap" placeholder="NRT" /></div>
-      <div class="field"><label>抵達時間</label><input id="f-arr-time" placeholder="11:10" /></div>
+      <div class="field"><label>抵達機場</label><input id="f-arr-ap" placeholder="NRT" value="${escapeHtml(existingFlight?.arrAirport || "")}" /></div>
+      <div class="field"><label>抵達時間</label><input id="f-arr-time" placeholder="11:10" value="${escapeHtml(existingFlight?.arrTime || "")}" /></div>
     </div>
-    <div class="field"><label>訂位代碼（選填）</label><input id="f-code" placeholder="PNR" /></div>
-    <div class="field"><label>備註</label><textarea id="f-note" placeholder="選填"></textarea></div>
+    <div class="field"><label>訂位代碼（選填）</label><input id="f-code" placeholder="PNR" value="${escapeHtml(existingFlight?.bookingCode || "")}" /></div>
+    <div class="field"><label>備註</label><textarea id="f-note" placeholder="選填">${escapeHtml(existingFlight?.note || "")}</textarea></div>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>取消</button>
-      <button class="btn btn--primary" data-save>儲存</button>
+      <button class="btn btn--primary" data-save>${isEdit ? "儲存修改" : "儲存"}</button>
     </div>
   `, (root) => {
-    root.querySelector("#f-parse-btn").addEventListener("click", () => {
-      const parsed = parseFlightText(root.querySelector("#f-paste").value);
-      if (parsed.airline) root.querySelector("#f-airline").value = parsed.airline;
-      if (parsed.flightNo) root.querySelector("#f-no").value = parsed.flightNo;
-      if (parsed.depAirport) root.querySelector("#f-dep-ap").value = parsed.depAirport;
-      if (parsed.arrAirport) root.querySelector("#f-arr-ap").value = parsed.arrAirport;
-      if (parsed.depTime) root.querySelector("#f-dep-time").value = parsed.depTime;
-      if (parsed.arrTime) root.querySelector("#f-arr-time").value = parsed.arrTime;
-      if (parsed.date) root.querySelector("#f-date").value = parsed.date;
-      if (parsed.bookingCode) root.querySelector("#f-code").value = parsed.bookingCode;
-    });
+    if (!isEdit) {
+      root.querySelector("#f-parse-btn").addEventListener("click", () => {
+        const parsed = parseFlightText(root.querySelector("#f-paste").value);
+        if (parsed.airline) root.querySelector("#f-airline").value = parsed.airline;
+        if (parsed.flightNo) root.querySelector("#f-no").value = parsed.flightNo;
+        if (parsed.depAirport) root.querySelector("#f-dep-ap").value = parsed.depAirport;
+        if (parsed.arrAirport) root.querySelector("#f-arr-ap").value = parsed.arrAirport;
+        if (parsed.depTime) root.querySelector("#f-dep-time").value = parsed.depTime;
+        if (parsed.arrTime) root.querySelector("#f-arr-time").value = parsed.arrTime;
+        if (parsed.date) root.querySelector("#f-date").value = parsed.date;
+        if (parsed.bookingCode) root.querySelector("#f-code").value = parsed.bookingCode;
+      });
+    }
     root.querySelector("[data-save]").addEventListener("click", () => {
-      trip.flights.push({
-        id: uid(), direction: root.querySelector("#f-dir").value, airline: root.querySelector("#f-airline").value.trim(),
+      const values = {
+        direction: root.querySelector("#f-dir").value, airline: root.querySelector("#f-airline").value.trim(),
         flightNo: root.querySelector("#f-no").value.trim(), date: root.querySelector("#f-date").value,
         depAirport: root.querySelector("#f-dep-ap").value.trim(), depTime: root.querySelector("#f-dep-time").value.trim(),
         arrAirport: root.querySelector("#f-arr-ap").value.trim(), arrTime: root.querySelector("#f-arr-time").value.trim(),
         bookingCode: root.querySelector("#f-code").value.trim(), note: root.querySelector("#f-note").value.trim(),
-      });
+      };
+      if (isEdit) Object.assign(existingFlight, values);
+      else trip.flights.push({ id: uid(), ...values });
       saveJournal(); renderLogistics(); renderDaysView(); closeModal();
     });
   });
 }
 
-function openLodgingForm() {
+function openLodgingForm(existingLodging = null) {
+  const isEdit = !!existingLodging;
   const trip = currentTrip();
-  let placeData = null;
+  let placeData = isEdit ? { placeId: existingLodging.placeId, address: existingLodging.address } : null;
   openModal(`
-    <h3>新增住宿</h3>
-    ${smartPasteBlockHtml()}
+    <h3>${isEdit ? "編輯住宿" : "新增住宿"}</h3>
+    ${isEdit ? "" : smartPasteBlockHtml()}
     <div class="field">
       <label>名稱</label>
-      <input id="f-name" placeholder="例如：大阪希爾頓飯店" autocomplete="off" />
-      <p class="field-hint" id="place-hint"></p>
+      <input id="f-name" placeholder="例如：大阪希爾頓飯店" autocomplete="off" value="${escapeHtml(existingLodging?.name || "")}" />
+      <p class="field-hint" id="place-hint">${isEdit && existingLodging.address ? "✓ 已鎖定地標" : ""}</p>
     </div>
-    <div class="field"><label>地址（選填，若用搜尋會自動帶入）</label><input id="f-addr" placeholder="地址" /></div>
-    <div class="field"><label>入住日期</label><input id="f-in" type="date" /></div>
-    <div class="field"><label>退房日期</label><input id="f-out" type="date" /></div>
-    <div class="field"><label>訂房代碼（選填）</label><input id="f-code" placeholder="訂房確認碼" /></div>
-    <div class="field"><label>電話（選填）</label><input id="f-phone" placeholder="選填" /></div>
-    <div class="field"><label>備註</label><textarea id="f-note" placeholder="選填"></textarea></div>
+    <div class="field"><label>地址（選填，若用搜尋會自動帶入）</label><input id="f-addr" placeholder="地址" value="${escapeHtml(existingLodging?.address || "")}" /></div>
+    <div class="field"><label>入住日期</label><input id="f-in" type="date" value="${escapeHtml(existingLodging?.checkin || "")}" /></div>
+    <div class="field"><label>退房日期</label><input id="f-out" type="date" value="${escapeHtml(existingLodging?.checkout || "")}" /></div>
+    <div class="field"><label>訂房代碼（選填）</label><input id="f-code" placeholder="訂房確認碼" value="${escapeHtml(existingLodging?.bookingCode || "")}" /></div>
+    <div class="field"><label>電話（選填）</label><input id="f-phone" placeholder="選填" value="${escapeHtml(existingLodging?.phone || "")}" /></div>
+    <div class="field"><label>備註</label><textarea id="f-note" placeholder="選填">${escapeHtml(existingLodging?.note || "")}</textarea></div>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>取消</button>
-      <button class="btn btn--primary" data-save>儲存</button>
+      <button class="btn btn--primary" data-save>${isEdit ? "儲存修改" : "儲存"}</button>
     </div>
   `, (root) => {
     const nameInput = root.querySelector("#f-name");
     const addrInput = root.querySelector("#f-addr");
+    if (isEdit && existingLodging.address) root.querySelector("#place-hint").classList.add("field-hint--ok");
     if (getApiKey()) {
-      root.querySelector("#place-hint").textContent = "輸入關鍵字可搜尋真實地標";
+      if (!root.querySelector("#place-hint").textContent) root.querySelector("#place-hint").textContent = "輸入關鍵字可搜尋真實地標";
       tryAttachPlacesAutocomplete(nameInput, (place) => {
         placeData = { placeId: place.place_id, address: place.formatted_address || "" };
         nameInput.value = place.name || nameInput.value;
@@ -1729,23 +1790,27 @@ function openLodgingForm() {
         { const ph = root.querySelector("#place-hint"); ph.textContent = "✓ 已鎖定地標"; ph.classList.add("field-hint--ok"); }
       });
     }
-    root.querySelector("#f-parse-btn").addEventListener("click", () => {
-      const parsed = parseLodgingText(root.querySelector("#f-paste").value);
-      if (parsed.name) nameInput.value = parsed.name;
-      if (parsed.checkin) root.querySelector("#f-in").value = parsed.checkin;
-      if (parsed.checkout) root.querySelector("#f-out").value = parsed.checkout;
-      if (parsed.bookingCode) root.querySelector("#f-code").value = parsed.bookingCode;
-      if (parsed.phone) root.querySelector("#f-phone").value = parsed.phone;
-    });
+    if (!isEdit) {
+      root.querySelector("#f-parse-btn").addEventListener("click", () => {
+        const parsed = parseLodgingText(root.querySelector("#f-paste").value);
+        if (parsed.name) nameInput.value = parsed.name;
+        if (parsed.checkin) root.querySelector("#f-in").value = parsed.checkin;
+        if (parsed.checkout) root.querySelector("#f-out").value = parsed.checkout;
+        if (parsed.bookingCode) root.querySelector("#f-code").value = parsed.bookingCode;
+        if (parsed.phone) root.querySelector("#f-phone").value = parsed.phone;
+      });
+    }
     root.querySelector("[data-save]").addEventListener("click", () => {
       const name = nameInput.value.trim();
       if (!name) return;
-      trip.lodging.push({
-        id: uid(), name, address: addrInput.value.trim() || placeData?.address || "", placeId: placeData?.placeId || null,
+      const values = {
+        name, address: addrInput.value.trim() || placeData?.address || "", placeId: placeData?.placeId || null,
         checkin: root.querySelector("#f-in").value, checkout: root.querySelector("#f-out").value,
         bookingCode: root.querySelector("#f-code").value.trim(), phone: root.querySelector("#f-phone").value.trim(),
         note: root.querySelector("#f-note").value.trim(),
-      });
+      };
+      if (isEdit) Object.assign(existingLodging, values);
+      else trip.lodging.push({ id: uid(), ...values });
       saveJournal(); renderLogistics(); renderDaysView(); closeModal();
     });
   });
@@ -1769,22 +1834,24 @@ function transportFieldsHtml(type) {
   `;
 }
 
-function openTransportForm() {
+function openTransportForm(existingItem = null) {
+  const isEdit = !!existingItem;
   const trip = currentTrip();
-  const typeOpts = TRANSPORT_TYPES.map((t) => `<option value="${t}">${t}</option>`).join("");
+  const typeOpts = TRANSPORT_TYPES.map((t) => `<option value="${t}" ${isEdit && existingItem.type===t?"selected":""}>${t}</option>`).join("");
   openModal(`
-    <h3>新增交通資訊</h3>
+    <h3>${isEdit ? "編輯交通資訊" : "新增交通資訊"}</h3>
     <div class="field"><label>類型</label><select id="f-type">${typeOpts}</select></div>
     <div id="transportFields"></div>
-    <div class="field"><label>日期（選填，填了會顯示在整合行程表當天）</label><input id="f-date" type="date" /></div>
-    <div class="field"><label>確認碼（選填）</label><input id="f-code" placeholder="訂位/租車確認碼" /></div>
-    <div class="field"><label>備註</label><textarea id="f-note" placeholder="選填"></textarea></div>
+    <div class="field"><label>日期（選填，填了會顯示在整合行程表當天）</label><input id="f-date" type="date" value="${escapeHtml(existingItem?.date || "")}" /></div>
+    <div class="field"><label>確認碼（選填）</label><input id="f-code" placeholder="訂位/租車確認碼" value="${escapeHtml(existingItem?.bookingCode || "")}" /></div>
+    <div class="field"><label>備註</label><textarea id="f-note" placeholder="選填">${escapeHtml(existingItem?.note || "")}</textarea></div>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>取消</button>
-      <button class="btn btn--primary" data-save>儲存</button>
+      <button class="btn btn--primary" data-save>${isEdit ? "儲存修改" : "儲存"}</button>
     </div>
   `, (root) => {
     const fieldsWrap = root.querySelector("#transportFields");
+    let seed = isEdit ? { title: existingItem.title, from: existingItem.from, to: existingItem.to, dep: existingItem.depTime, arr: existingItem.arrTime } : null;
     function attachAutocomplete() {
       const fromInput = root.querySelector("#f-from");
       const toInput = root.querySelector("#f-to");
@@ -1794,7 +1861,8 @@ function openTransportForm() {
       }
     }
     function renderFields(type) {
-      const prevValues = { title: root.querySelector("#f-title")?.value, from: root.querySelector("#f-from")?.value, to: root.querySelector("#f-to")?.value, dep: root.querySelector("#f-dep-time")?.value, arr: root.querySelector("#f-arr-time")?.value };
+      const prevValues = seed || { title: root.querySelector("#f-title")?.value, from: root.querySelector("#f-from")?.value, to: root.querySelector("#f-to")?.value, dep: root.querySelector("#f-dep-time")?.value, arr: root.querySelector("#f-arr-time")?.value };
+      seed = null;
       fieldsWrap.innerHTML = transportFieldsHtml(type);
       if (prevValues.title && root.querySelector("#f-title")) root.querySelector("#f-title").value = prevValues.title;
       if (prevValues.from && root.querySelector("#f-from")) root.querySelector("#f-from").value = prevValues.from;
@@ -1810,12 +1878,14 @@ function openTransportForm() {
       const fromInput = root.querySelector("#f-from");
       const toInput = root.querySelector("#f-to");
       const arrInput = root.querySelector("#f-arr-time");
-      trip.transportItems.push({
-        id: uid(), type: root.querySelector("#f-type").value, title: (root.querySelector("#f-title")?.value || "").trim(),
+      const values = {
+        type: root.querySelector("#f-type").value, title: (root.querySelector("#f-title")?.value || "").trim(),
         date: root.querySelector("#f-date").value, from: (fromInput?.value || "").trim(), to: (toInput?.value || "").trim(),
         depTime: (root.querySelector("#f-dep-time")?.value || "").trim(), arrTime: (arrInput?.value || "").trim(),
         bookingCode: root.querySelector("#f-code").value.trim(), note: root.querySelector("#f-note").value.trim(),
-      });
+      };
+      if (isEdit) Object.assign(existingItem, values);
+      else trip.transportItems.push({ id: uid(), ...values });
       saveJournal(); renderLogistics(); renderDaysView(); closeModal();
     });
   });
