@@ -472,6 +472,13 @@ main#views {
   display: flex; align-items: center; justify-content: center; padding: 0; flex: none;
 }
 .hero-budget { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+.expense-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.expense-toolbar .chip-row { flex: 1; }
+.currency-tag {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  background: var(--orange-mist); color: var(--orange); padding: 1px 6px;
+  border-radius: 999px; margin-left: 6px; vertical-align: middle;
+}
 .expense-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 /* 浮動新增按鈕 */
@@ -684,20 +691,47 @@ main#views {
 .logistics-meta { font-size: 12px; color: var(--ink-soft); margin: 0; }
 .logistics-card .btn--danger { align-self: flex-end; margin-top: 4px; }
 
-/* ---------- 完整行程表 ---------- */
+/* ---------- 完整行程表（可收合的精簡版） ---------- */
 .full-flight-card { font-size: 13px; background: var(--green-mist); border: none; }
-.full-day-section { margin-bottom: 22px; }
-.full-day-header {
+.full-day-header-plain {
   font-family: var(--font-display); font-weight: 700; font-size: 14px;
-  color: var(--green-deep); margin: 18px 0 10px; padding-bottom: 4px;
+  color: var(--green-deep); margin: 4px 0 10px; padding-bottom: 4px;
   border-bottom: 2px solid var(--gold);
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
+.full-toolbar { display: flex; gap: 8px; margin-bottom: 14px; }
+.full-day-section { margin-bottom: 10px; border-bottom: 1px solid var(--line); }
+.full-day-section:last-child { border-bottom: none; }
+.full-day-header {
+  width: 100%;
+  background: none; border: none; cursor: pointer;
+  font-family: var(--font-display); font-weight: 700; font-size: 14px;
+  color: var(--ink); padding: 12px 2px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  text-align: left;
+}
+.full-day-header.is-open { color: var(--green-deep); }
+.full-day-chevron { font-size: 11px; color: var(--ink-soft); transition: transform 0.15s; flex: none; }
+.full-day-header.is-open .full-day-chevron { transform: rotate(90deg); color: var(--green-deep); }
+.full-day-title { flex: 1 1 auto; min-width: 0; }
+.full-day-summary { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-soft); font-weight: 500; }
+.full-day-body { padding: 0 2px 14px; }
 .weather-badge {
   font-family: var(--font-mono); font-size: 12px; font-weight: 700;
   background: var(--green-mist); color: var(--green-deep); padding: 2px 8px; border-radius: 999px;
 }
 .day-events-card { margin-bottom: 10px; background: var(--green-mist); border: none; }
+.full-stop-list { display: flex; flex-direction: column; }
+.full-stop-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 7px 0; border-bottom: 1px dashed var(--line);
+  font-size: 13.5px;
+}
+.full-stop-list .full-stop-row:last-child { border-bottom: none; }
+.full-stop-time { font-family: var(--font-mono); font-weight: 700; color: var(--green-deep); font-size: 12px; flex: none; min-width: 40px; }
+.full-stop-dot { color: var(--ink-soft); flex: none; min-width: 40px; }
+.full-stop-name { flex: 1; min-width: 0; overflow-wrap: break-word; }
+.full-stop-tags { font-size: 11px; color: var(--ink-soft); }
+.drive-chip--compact { font-size: 11px; padding: 2px 0 2px 48px; color: var(--ink-soft); }
 .journal-field { margin: 14px 0; }
 .journal-field textarea { min-height: 70px; }
 .journal-recap { margin-top: 10px; background: var(--orange-mist); border: none; }

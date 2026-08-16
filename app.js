@@ -160,7 +160,7 @@ function migrateV2Trip(old) {
     spots: (old.spots || []).map((s) => ({ tags: [], ...s })),
     days: old.days && old.days.length ? old.days.map((d) => ({ journal: "", weatherCache: null, ...d, stops: (d.stops||[]).map(s=>({tags:[],lat:null,lng:null,...s})) })) : [],
     packing: old.packing || defaultPacking("日圓", true),
-    expenses: (old.expenses || []).map((e) => ({ payerId: null, splitWith: [], ...e })),
+    expenses: (old.expenses || []).map((e) => ({ payerId: null, splitWith: [], date: null, currency: null, ...e })),
     members: old.members || [],
     customPhrases: old.customPhrases || [],
     notes: old.notes || [],
@@ -192,6 +192,8 @@ function loadJournal() {
           (t.expenses || []).forEach((e) => {
             if (e.payerId === undefined) e.payerId = null;
             if (!e.splitWith) e.splitWith = [];
+            if (e.date === undefined) e.date = null;
+            if (e.currency === undefined) e.currency = null;
           });
           (t.spots || []).forEach((s) => { if (!s.tags) s.tags = []; });
           (t.days || []).forEach((d) => {
@@ -816,6 +818,7 @@ function openTrip(id) {
   phraseFilter = "全部";
   currentDayIdx = 0;
   itineraryMode = "full";
+  expandedDays = new Set();
   logisticsSubTab = "flights";
   switchScreen("trip");
   switchView("days");
@@ -1118,6 +1121,8 @@ function dayEventsFor(trip, day) {
   return events.sort((a, b) => (a.time||"").localeCompare(b.time||""));
 }
 
+let expandedDays = new Set(); // 記住這次瀏覽中哪些天是展開的
+
 function renderFullItinerary() {
   const trip = currentTrip();
   if (!trip) return;
@@ -1129,44 +1134,74 @@ function renderFullItinerary() {
   if (undatedFlights.length) {
     const box = el(`<div class="card full-flight-card"></div>`);
     undatedFlights.forEach((f) => box.appendChild(el(`<p style="margin:4px 0;">✈️ <b>${escapeHtml(f.direction)}</b>　${escapeHtml(f.airline||"")} ${escapeHtml(f.flightNo||"")}　${escapeHtml(f.depAirport||"")} ${escapeHtml(f.depTime||"")} → ${escapeHtml(f.arrAirport||"")} ${escapeHtml(f.arrTime||"")}</p>`)));
-    road.appendChild(el(`<p class="full-day-header" style="margin-top:0;">未指定日期的航班</p>`));
+    road.appendChild(el(`<p class="full-day-header-plain">未指定日期的航班</p>`));
     road.appendChild(box);
   }
+
+  const toolbar = el(`
+    <div class="full-toolbar">
+      <button class="chip" id="expandAllDays">展開全部</button>
+      <button class="chip" id="collapseAllDays">收合全部</button>
+    </div>
+  `);
+  toolbar.querySelector("#expandAllDays").addEventListener("click", () => { trip.days.forEach((d) => expandedDays.add(d.id)); renderFullItinerary(); });
+  toolbar.querySelector("#collapseAllDays").addEventListener("click", () => { expandedDays.clear(); renderFullItinerary(); });
+  road.appendChild(toolbar);
 
   trip.days.forEach((day) => {
     const section = el(`<div class="full-day-section"></div>`);
     const weather = day.weatherCache;
     const weatherHtml = weather ? `<span class="weather-badge">${weatherIconFor(weather.code)} ${Math.round(weather.tmax)}°/${Math.round(weather.tmin)}°</span>` : "";
-    section.appendChild(el(`<div class="full-day-header">${escapeHtml(day.label)}${day.date ? " · " + formatDateDisplay(day.date) : ""} ${weatherHtml}</div>`));
-
     const events = dayEventsFor(trip, day);
+    const isOpen = expandedDays.has(day.id);
+    const summaryBits = [];
+    if (day.stops.length) summaryBits.push(`🛣️ ${day.stops.length} 站`);
+    if (events.length) summaryBits.push(`${events.length} 項提醒`);
+    if (day.journal) summaryBits.push(`📝`);
+
+    const header = el(`
+      <button class="full-day-header ${isOpen ? "is-open" : ""}" type="button">
+        <span class="full-day-chevron">▸</span>
+        <span class="full-day-title">${escapeHtml(day.label)}${day.date ? " · " + formatDateDisplay(day.date) : ""}</span>
+        ${weatherHtml}
+        <span class="full-day-summary">${summaryBits.join("　")}</span>
+      </button>
+    `);
+    const body = el(`<div class="full-day-body"></div>`);
+    if (!isOpen) body.hidden = true;
+    header.addEventListener("click", () => {
+      const nowOpen = !body.hidden;
+      body.hidden = nowOpen;
+      header.classList.toggle("is-open", !nowOpen);
+      if (nowOpen) expandedDays.delete(day.id); else expandedDays.add(day.id);
+    });
+
     if (events.length) {
       const evBox = el(`<div class="card day-events-card"></div>`);
       events.forEach((ev) => evBox.appendChild(el(`<p style="margin:4px 0;font-size:13px;">${ev.time ? `<span class="stop-time" style="margin-right:6px;">${escapeHtml(ev.time)}</span>` : ""}${ev.html}</p>`)));
-      section.appendChild(evBox);
+      body.appendChild(evBox);
     }
 
     if (!day.stops.length) {
-      section.appendChild(el(`<div class="empty-hint" style="padding:14px;">（尚未安排景點行程）</div>`));
+      body.appendChild(el(`<div class="empty-hint" style="padding:14px;">（尚未安排景點行程）</div>`));
     } else {
-      const inner = el(`<div class="road"></div>`);
+      const inner = el(`<div class="full-stop-list"></div>`);
       day.stops.forEach((stop, idx) => {
-        if (idx > 0 && stop.drive) inner.appendChild(el(`<div class="drive-chip">🚗 車程約 ${escapeHtml(stop.drive)}</div>`));
-        const tagPills = (stop.tags || []).map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join("");
+        if (idx > 0 && stop.drive) inner.appendChild(el(`<div class="drive-chip drive-chip--compact">🚗 ${escapeHtml(stop.drive)}</div>`));
+        const tagText = (stop.tags || []).length ? " · " + stop.tags.join("、") : "";
         inner.appendChild(el(`
-          <div class="road-stop">
-            <div class="card">
-              ${stop.time ? `<span class="stop-time">${escapeHtml(stop.time)}</span>` : ""}
-              <p class="stop-name">${escapeHtml(stop.name)}</p>
-              ${tagPills ? `<div class="tag-pill-row">${tagPills}</div>` : ""}
-              ${stop.note ? `<p class="stop-note">${escapeHtml(stop.note)}</p>` : ""}
-            </div>
+          <div class="full-stop-row">
+            ${stop.time ? `<span class="stop-time">${escapeHtml(stop.time)}</span>` : `<span class="full-stop-dot">・</span>`}
+            <span class="full-stop-name">${escapeHtml(stop.name)}${tagText ? `<span class="full-stop-tags">${escapeHtml(tagText)}</span>` : ""}</span>
           </div>
         `));
       });
-      section.appendChild(inner);
+      body.appendChild(inner);
     }
-    if (day.journal) section.appendChild(el(`<div class="card journal-recap"><p style="font-weight:700;font-size:12px;margin:0 0 4px;color:var(--ink-soft);">📝 心得</p><p style="font-size:13px;margin:0;white-space:pre-wrap;">${escapeHtml(day.journal)}</p></div>`));
+    if (day.journal) body.appendChild(el(`<div class="card journal-recap"><p style="font-weight:700;font-size:12px;margin:0 0 4px;color:var(--ink-soft);">📝 心得</p><p style="font-size:13px;margin:0;white-space:pre-wrap;">${escapeHtml(day.journal)}</p></div>`));
+
+    section.appendChild(header);
+    section.appendChild(body);
     road.appendChild(section);
   });
 
@@ -1298,20 +1333,33 @@ function budgetBarHtml(spent, budget, label) {
 }
 function memberName(trip, id) { return (trip.members.find((m) => m.id === id) || {}).name || "未指定"; }
 
+/* ---------- 多幣別花費：每筆花費可選擇跟旅遊主要貨幣不同的幣別 ---------- */
+function expenseCurrency(trip, e) { return e.currency || trip.currency; }
+function expenseRate(trip, e) { return (e.currency && e.currency.rate) || trip.exRate; }
+function expenseTWD(trip, e) { return Number(e.amount || 0) * expenseRate(trip, e); }
+function expenseInTripCurrency(trip, e) {
+  if (!e.currency) return Number(e.amount || 0);
+  return trip.exRate ? expenseTWD(trip, e) / trip.exRate : Number(e.amount || 0);
+}
+
 function calculateSettlement(trip) {
   const members = trip.members;
   if (members.length < 2) return null;
-  const paid = {}, owed = {};
-  members.forEach((m) => { paid[m.id] = 0; owed[m.id] = 0; });
+  const paidTWD = {}, owedTWD = {};
+  members.forEach((m) => { paidTWD[m.id] = 0; owedTWD[m.id] = 0; });
   trip.expenses.forEach((e) => {
-    const amount = Number(e.amount || 0);
-    if (e.payerId && paid[e.payerId] !== undefined) paid[e.payerId] += amount;
-    const splitWith = (e.splitWith && e.splitWith.length ? e.splitWith : members.map((m) => m.id)).filter((id) => owed[id] !== undefined);
+    const amountTWD = expenseTWD(trip, e);
+    if (e.payerId && paidTWD[e.payerId] !== undefined) paidTWD[e.payerId] += amountTWD;
+    const splitWith = (e.splitWith && e.splitWith.length ? e.splitWith : members.map((m) => m.id)).filter((id) => owedTWD[id] !== undefined);
     if (!splitWith.length) return;
-    const share = amount / splitWith.length;
-    splitWith.forEach((id) => { owed[id] += share; });
+    const share = amountTWD / splitWith.length;
+    splitWith.forEach((id) => { owedTWD[id] += share; });
   });
-  const balances = members.map((m) => ({ id: m.id, name: m.name, paid: paid[m.id], owed: owed[m.id], balance: paid[m.id] - owed[m.id] }));
+  const rate = trip.exRate || 1;
+  const balances = members.map((m) => ({
+    id: m.id, name: m.name,
+    paid: paidTWD[m.id] / rate, owed: owedTWD[m.id] / rate, balance: (paidTWD[m.id] - owedTWD[m.id]) / rate,
+  }));
 
   const creditors = balances.filter((b) => b.balance > 0.5).map((b) => ({ ...b })).sort((a, b) => b.balance - a.balance);
   const debtors = balances.filter((b) => b.balance < -0.5).map((b) => ({ ...b, balance: -b.balance })).sort((a, b) => b.balance - a.balance);
@@ -1401,15 +1449,56 @@ function openAddMemberForm() {
   });
 }
 
+function csvEscape(val) {
+  const s = String(val ?? "");
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+function exportExpensesCSV(trip) {
+  const curLabel = trip.currency.code || trip.currency.name || "當地貨幣";
+  const rows = [["日期", "類別", "項目", "幣別", `金額`, "換算TWD", "付款人", "分攤對象", "備註"]];
+  trip.expenses.forEach((e) => {
+    const cur = expenseCurrency(trip, e);
+    rows.push([
+      e.date ? formatDateDisplay(e.date) : "",
+      e.category,
+      e.title || "",
+      cur.code || cur.name || curLabel,
+      e.amount,
+      Math.round(expenseTWD(trip, e)),
+      e.payerId ? memberName(trip, e.payerId) : "",
+      (e.splitWith || []).map((id) => memberName(trip, id)).join("、"),
+      e.note || "",
+    ]);
+  });
+  const totalTWD = trip.expenses.reduce((s, e) => s + expenseTWD(trip, e), 0);
+  rows.push([]);
+  rows.push(["總計", "", "", "", "", Math.round(totalTWD), "", "", ""]);
+  const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${trip.title.replace(/[\\/:*?"<>|]/g, "")}_記帳明細.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
 function renderExpenses() {
   const trip = currentTrip();
   if (!trip) return;
   $("#exRate").value = trip.exRate;
   $("#rateFromCode").textContent = trip.currency.code || trip.currency.name || "當地貨幣";
   const symbol = trip.currency.symbol || "";
-  const total = trip.expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
-  $("#totalJPY").textContent = symbol + total.toLocaleString();
-  $("#totalTWD").textContent = "NT$" + Math.round(total * trip.exRate).toLocaleString();
+  const total = trip.expenses.reduce((s, e) => s + expenseInTripCurrency(trip, e), 0);
+  const totalTWD = trip.expenses.reduce((s, e) => s + expenseTWD(trip, e), 0);
+  $("#totalJPY").textContent = symbol + Math.round(total).toLocaleString();
+  $("#totalTWD").textContent = "NT$" + Math.round(totalTWD).toLocaleString();
+  const usedCurrencies = new Set(trip.expenses.map((e) => (e.currency ? e.currency.code : trip.currency.code)));
+  const currencyNote = $("#multiCurrencyNote");
+  if (currencyNote) currencyNote.textContent = usedCurrencies.size > 1 ? `（使用了 ${usedCurrencies.size} 種貨幣，已換算成 ${symbol} 顯示總額）` : "";
 
   const heroBudgetWrap = $("#heroBudgetBar");
   heroBudgetWrap.innerHTML = "";
@@ -1419,7 +1508,7 @@ function renderExpenses() {
   EXPENSE_CATS.forEach((c) => {
     const limit = budget.byCategory && budget.byCategory[c.key];
     if (!limit) return;
-    const spent = trip.expenses.filter((e) => e.category === c.key).reduce((s, e) => s + Number(e.amount || 0), 0);
+    const spent = trip.expenses.filter((e) => e.category === c.key).reduce((s, e) => s + expenseInTripCurrency(trip, e), 0);
     budgetHtml += budgetBarHtml(spent, limit, `${c.icon} ${c.key}`);
   });
   if (budgetHtml) heroBudgetWrap.appendChild(el(`<div class="hero-budget">${budgetHtml}</div>`));
@@ -1429,25 +1518,27 @@ function renderExpenses() {
   const byCat = $("#expenseByCategory");
   byCat.innerHTML = "";
   EXPENSE_CATS.forEach((c) => {
-    const sum = trip.expenses.filter((e) => e.category === c.key).reduce((s, e) => s + Number(e.amount || 0), 0);
-    if (sum > 0) byCat.appendChild(el(`<div class="chip static">${c.icon} ${c.key} ${symbol}${sum.toLocaleString()}</div>`));
+    const sum = trip.expenses.filter((e) => e.category === c.key).reduce((s, e) => s + expenseInTripCurrency(trip, e), 0);
+    if (sum > 0) byCat.appendChild(el(`<div class="chip static">${c.icon} ${c.key} ${symbol}${Math.round(sum).toLocaleString()}</div>`));
   });
 
   const list = $("#expenseList");
   list.innerHTML = "";
   if (!trip.expenses.length) { list.appendChild(el(`<div class="empty-hint">還沒有花費紀錄，點右下角 ＋ 隨手記一筆吧！</div>`)); return; }
   trip.expenses.slice().reverse().forEach((e) => {
+    const cur = expenseCurrency(trip, e);
+    const isForeign = !!e.currency;
     const payerText = e.payerId ? `由 ${escapeHtml(memberName(trip, e.payerId))} 付款` : "";
     const splitText = e.splitWith && e.splitWith.length ? `均分：${e.splitWith.map((id) => escapeHtml(memberName(trip, id))).join("、")}` : "";
     const row = el(`
       <div class="card expense-row">
         <div class="expense-row__icon">${iconFor(e.category)}</div>
         <div class="expense-row__body">
-          <div class="expense-row__title">${escapeHtml(e.title || e.category)}</div>
-          <div class="expense-row__meta">${escapeHtml(e.category)}${e.note ? " · " + escapeHtml(e.note) : ""}</div>
+          <div class="expense-row__title">${escapeHtml(e.title || e.category)}${isForeign ? `<span class="currency-tag">${escapeHtml(cur.code || cur.name)}</span>` : ""}</div>
+          <div class="expense-row__meta">${escapeHtml(e.category)}${e.date ? " · " + formatDateDisplay(e.date) : ""}${e.note ? " · " + escapeHtml(e.note) : ""}</div>
           ${payerText || splitText ? `<div class="expense-row__split">${payerText}${payerText && splitText ? " · " : ""}${splitText}</div>` : ""}
         </div>
-        <div class="expense-row__amount">${symbol}${Number(e.amount).toLocaleString()}</div>
+        <div class="expense-row__amount">${escapeHtml(cur.symbol || "")}${Number(e.amount).toLocaleString()}</div>
         <button class="btn btn--outline btn--small" data-edit>✏️</button>
         <button class="btn btn--danger" data-del>刪</button>
       </div>
@@ -1457,6 +1548,11 @@ function renderExpenses() {
     list.appendChild(row);
   });
 }
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function openExpenseForm(existingExpense = null) {
   const isEdit = !!existingExpense;
   const trip = currentTrip();
@@ -1468,29 +1564,78 @@ function openExpenseForm(existingExpense = null) {
     const checked = isEdit ? (splitWithSet.has(m.id) ? "checked" : "") : "checked";
     return `<label class="tag-check"><input type="checkbox" value="${m.id}" ${checked} /><span>${escapeHtml(m.name)}</span></label>`;
   }).join("");
+  const existingForeign = isEdit ? existingExpense.currency : null;
+  const currencySelectedValue = existingForeign ? (COUNTRY_CURRENCY.some((c) => c.code === existingForeign.code) ? existingForeign.code : "__custom") : "__trip";
+  const currencyOpts = `<option value="__trip">與旅遊相同（${escapeHtml(trip.currency.code || trip.currency.name)}）</option>`
+    + COUNTRY_CURRENCY.map((c) => `<option value="${c.code}" ${currencySelectedValue===c.code?"selected":""}>${c.flag} ${c.country}（${c.code}）</option>`).join("")
+    + `<option value="__custom" ${currencySelectedValue==="__custom"?"selected":""}>🌍 其他（自訂）</option>`;
   openModal(`
     <h3>${isEdit ? "編輯花費" : "新增花費"}</h3>
-    <div class="field"><label>金額（${escapeHtml(trip.currency.name || "當地貨幣")}）</label><input id="f-amount" type="number" placeholder="0" value="${isEdit ? existingExpense.amount : ""}" /></div>
+    <div class="field"><label>日期（選填）</label><input id="f-date" type="date" value="${escapeHtml(existingExpense?.date || todayISO())}" /></div>
+    <div class="field"><label>貨幣</label><select id="f-currency">${currencyOpts}</select></div>
+    <div id="foreignCurrencyFields" class="settings-row" style="display:none;">
+      <div><label style="font-size:12px;color:var(--ink-soft);font-weight:700;">幣別代碼</label><input id="f-cur-code" value="${escapeHtml(existingForeign?.code || "")}" /></div>
+      <div><label style="font-size:12px;color:var(--ink-soft);font-weight:700;">符號</label><input id="f-cur-symbol" value="${escapeHtml(existingForeign?.symbol || "")}" /></div>
+      <div><label style="font-size:12px;color:var(--ink-soft);font-weight:700;">匯率(→TWD)</label><input id="f-cur-rate" type="number" step="0.0001" value="${existingForeign?.rate ?? ""}" /></div>
+    </div>
+    <div class="field"><label>金額（<span id="amountCurLabel">${escapeHtml(trip.currency.name || "當地貨幣")}</span>）</label><input id="f-amount" type="number" placeholder="0" value="${isEdit ? existingExpense.amount : ""}" /></div>
     <div class="field"><label>類別</label><select id="f-cat">${catOpts}</select></div>
     <div class="field"><label>項目名稱</label><input id="f-title" placeholder="例如：拉麵晚餐" value="${escapeHtml(existingExpense?.title || "")}" /></div>
     ${hasMembers ? `
     <div class="field"><label>誰付的錢</label><select id="f-payer"><option value="">未指定</option>${payerOpts}</select></div>
     <div class="field"><label>算誰的份（可複選，預設全部）</label><div class="tag-check-row">${splitChecks}</div></div>
-    ` : `<p class="field-hint">到下方「👥 分帳成員」新增旅伴，就能標記這筆是誰付的、要算誰的份。</p>`}
+    ` : `<p class="field-hint">到下方「👥 分帳」新增旅伴，就能標記這筆是誰付的、要算誰的份。</p>`}
     <div class="field"><label>備註</label><input id="f-note" placeholder="選填" value="${escapeHtml(existingExpense?.note || "")}" /></div>
     <div class="modal-actions">
       <button class="btn btn--ghost" data-cancel>取消</button>
       <button class="btn btn--primary" data-save>${isEdit ? "儲存修改" : "儲存"}</button>
     </div>
   `, (root) => {
+    const currencySelect = root.querySelector("#f-currency");
+    const foreignWrap = root.querySelector("#foreignCurrencyFields");
+    const amountLabel = root.querySelector("#amountCurLabel");
+    function syncCurrencyUI() {
+      const val = currencySelect.value;
+      if (val === "__trip") {
+        foreignWrap.style.display = "none";
+        amountLabel.textContent = trip.currency.name || "當地貨幣";
+      } else if (val === "__custom") {
+        foreignWrap.style.display = "flex";
+        amountLabel.textContent = root.querySelector("#f-cur-code").value || "自訂幣別";
+      } else {
+        const entry = findCountryEntry2(val);
+        foreignWrap.style.display = "flex";
+        if (entry) {
+          root.querySelector("#f-cur-code").value = entry.code;
+          root.querySelector("#f-cur-symbol").value = entry.symbol;
+          root.querySelector("#f-cur-rate").value = entry.rate;
+          amountLabel.textContent = entry.name;
+        }
+      }
+    }
+    function findCountryEntry2(code) { return COUNTRY_CURRENCY.find((c) => c.code === code); }
+    currencySelect.addEventListener("change", syncCurrencyUI);
+    root.querySelector("#f-cur-code").addEventListener("input", (e) => { if (currencySelect.value === "__custom") amountLabel.textContent = e.target.value || "自訂幣別"; });
+    if (currencySelectedValue !== "__trip") { foreignWrap.style.display = "flex"; amountLabel.textContent = existingForeign?.name || existingForeign?.code || "自訂幣別"; }
+
     root.querySelector("[data-save]").addEventListener("click", () => {
       const amount = Number(root.querySelector("#f-amount").value);
       if (!amount) return;
       const payerId = hasMembers ? (root.querySelector("#f-payer").value || null) : null;
       const splitWith = hasMembers ? $all('.tag-check input[type="checkbox"]:checked', root).map((cb) => cb.value) : [];
+      let currency = null;
+      const curVal = currencySelect.value;
+      if (curVal !== "__trip") {
+        const code = root.querySelector("#f-cur-code").value.trim();
+        const symbol = root.querySelector("#f-cur-symbol").value.trim();
+        const rate = Number(root.querySelector("#f-cur-rate").value) || 0;
+        const entry = findCountryEntry2(curVal);
+        currency = { code, symbol, name: entry?.name || code || "自訂幣別", rate };
+      }
       const values = {
         amount, category: root.querySelector("#f-cat").value, title: root.querySelector("#f-title").value.trim(),
         note: root.querySelector("#f-note").value.trim(), payerId, splitWith,
+        date: root.querySelector("#f-date").value, currency,
       };
       if (isEdit) {
         Object.assign(existingExpense, values);
@@ -2181,6 +2326,7 @@ function init() {
   $("#backHome").addEventListener("click", goHome);
   $("#openSettings").addEventListener("click", () => switchView("settings"));
   $("#fetchRateBtn").addEventListener("click", fetchLiveRate);
+  $("#exportCsvBtn").addEventListener("click", () => { const trip = currentTrip(); if (trip) exportExpensesCSV(trip); });
   $("#importTripBtn").addEventListener("click", importTripFile);
   $("#joinSyncBtn").addEventListener("click", openJoinSyncForm);
   $("#openGlobalSettings").addEventListener("click", openGlobalSettings);
