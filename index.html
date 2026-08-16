@@ -91,26 +91,29 @@
       <div class="view-head">
         <h2>旅費記帳</h2>
       </div>
-      <div class="expense-summary">
-        <div class="expense-total">
-          <span class="label">總支出</span>
-          <span class="value"><span id="totalJPY">¥0</span></span>
-          <span class="value-sub">約 <span id="totalTWD">NT$0</span></span>
+
+      <div class="card expense-hero">
+        <span class="expense-hero__label">總支出</span>
+        <div class="expense-hero__amount"><span id="totalJPY">¥0</span></div>
+        <div class="expense-hero__row">
+          <span class="expense-hero__sub">約 <span id="totalTWD">NT$0</span></span>
+          <span class="expense-hero__rate">
+            匯率 1 <span id="rateFromCode">JPY</span> =
+            <input type="number" id="exRate" step="0.0001" />
+            <button class="icon-btn-mini" id="fetchRateBtn" title="抓即時匯率">🔄</button>
+          </span>
         </div>
-        <label class="rate-input">
-          匯率 1 <span id="rateFromCode">JPY</span> =
-          <input type="number" id="exRate" step="0.0001" />
-          TWD
-        </label>
-        <button class="btn btn--small rate-fetch-btn" id="fetchRateBtn">📡 抓即時匯率</button>
-        <span id="rateStatus" class="rate-status"></span>
+        <p class="field-hint" id="rateStatus"></p>
+        <div id="heroBudgetBar"></div>
       </div>
-      <div id="budgetSection"></div>
-      <div id="membersSection"></div>
-      <div id="settlementSection"></div>
+
       <div id="expenseByCategory" class="chip-row"></div>
       <div id="expenseList" class="stack"></div>
-      <button class="btn btn--primary" data-open="expense-form">＋ 新增花費</button>
+
+      <div id="splitCard"></div>
+
+      <div style="height:64px;"></div>
+      <button class="fab-add" data-open="expense-form" title="新增花費">＋</button>
     </section>
 
     <!-- 會話 -->

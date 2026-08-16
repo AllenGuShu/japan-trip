@@ -1327,13 +1327,15 @@ function calculateSettlement(trip) {
   return { balances, transfers };
 }
 
-function renderMembers() {
+function renderSplitCard() {
   const trip = currentTrip();
   if (!trip) return;
-  const wrap = $("#membersSection");
+  const wrap = $("#splitCard");
   wrap.innerHTML = "";
-  const card = el(`<div class="card members-card"></div>`);
-  card.appendChild(el(`<p class="members-card__title">👥 分帳成員${trip.members.length ? `（${trip.members.length}人）` : ""}</p>`));
+  const symbol = trip.currency.symbol || "";
+  const card = el(`<div class="card split-card"></div>`);
+  card.appendChild(el(`<p class="members-card__title">👥 分帳${trip.members.length ? `（${trip.members.length}人）` : ""}</p>`));
+
   const chipRow = el(`<div class="chip-row" style="margin-bottom:0;"></div>`);
   trip.members.forEach((m) => {
     const chip = el(`<span class="member-chip">${escapeHtml(m.name)}<button class="member-chip__del" data-del="${m.id}">✕</button></span>`);
@@ -1351,7 +1353,32 @@ function renderMembers() {
   addChip.addEventListener("click", openAddMemberForm);
   chipRow.appendChild(addChip);
   card.appendChild(chipRow);
-  if (!trip.members.length) card.appendChild(el(`<p class="field-hint" style="margin-top:8px;">新增至少 2 位成員，就能在花費裡標記「誰付的」「算誰的」，最後自動幫你算出誰要付給誰多少錢。</p>`));
+
+  const result = calculateSettlement(trip);
+  if (!trip.members.length) {
+    card.appendChild(el(`<p class="field-hint" style="margin-top:8px;">跟朋友一起去？新增旅伴，就能標記每筆花費是誰付的、算誰的份，自動算出誰要付給誰多少錢。</p>`));
+  } else if (result) {
+    card.appendChild(el(`<div class="settlement-divider" style="margin-top:10px;"></div>`));
+    result.balances.forEach((b) => {
+      const sign = b.balance > 0.5 ? "should-receive" : b.balance < -0.5 ? "should-pay" : "even";
+      const text = b.balance > 0.5 ? `應收回 ${symbol}${Math.round(b.balance).toLocaleString()}` : b.balance < -0.5 ? `應付出 ${symbol}${Math.round(-b.balance).toLocaleString()}` : "已結清";
+      card.appendChild(el(`
+        <div class="settlement-row">
+          <span class="settlement-row__name">${escapeHtml(b.name)}</span>
+          <span class="settlement-row__meta">付了 ${symbol}${Math.round(b.paid).toLocaleString()}　分攤 ${symbol}${Math.round(b.owed).toLocaleString()}</span>
+          <span class="settlement-row__balance ${sign}">${text}</span>
+        </div>
+      `));
+    });
+    if (result.transfers.length) {
+      card.appendChild(el(`<p class="settlement-suggest-title">建議轉帳</p>`));
+      result.transfers.forEach((t) => {
+        card.appendChild(el(`<p class="settlement-transfer">👉 <b>${escapeHtml(t.from)}</b> 要付給 <b>${escapeHtml(t.to)}</b>　<span class="settlement-transfer__amount">${symbol}${t.amount.toLocaleString()}</span></p>`));
+      });
+    } else {
+      card.appendChild(el(`<p class="field-hint" style="margin-top:6px;">目前帳務已平衡，不用互轉。</p>`));
+    }
+  }
   wrap.appendChild(card);
 }
 
@@ -1374,39 +1401,6 @@ function openAddMemberForm() {
   });
 }
 
-function renderSettlement() {
-  const trip = currentTrip();
-  if (!trip) return;
-  const wrap = $("#settlementSection");
-  wrap.innerHTML = "";
-  const result = calculateSettlement(trip);
-  if (!result) return;
-  const symbol = trip.currency.symbol || "";
-  const card = el(`<div class="card settlement-card"></div>`);
-  card.appendChild(el(`<p class="members-card__title">💵 分帳結算</p>`));
-  result.balances.forEach((b) => {
-    const sign = b.balance > 0.5 ? "should-receive" : b.balance < -0.5 ? "should-pay" : "even";
-    const text = b.balance > 0.5 ? `應收回 ${symbol}${Math.round(b.balance).toLocaleString()}` : b.balance < -0.5 ? `應付出 ${symbol}${Math.round(-b.balance).toLocaleString()}` : "已結清";
-    card.appendChild(el(`
-      <div class="settlement-row">
-        <span class="settlement-row__name">${escapeHtml(b.name)}</span>
-        <span class="settlement-row__meta">付了 ${symbol}${Math.round(b.paid).toLocaleString()}　分攤 ${symbol}${Math.round(b.owed).toLocaleString()}</span>
-        <span class="settlement-row__balance ${sign}">${text}</span>
-      </div>
-    `));
-  });
-  if (result.transfers.length) {
-    card.appendChild(el(`<div class="settlement-divider"></div>`));
-    card.appendChild(el(`<p class="settlement-suggest-title">建議轉帳</p>`));
-    result.transfers.forEach((t) => {
-      card.appendChild(el(`<p class="settlement-transfer">👉 <b>${escapeHtml(t.from)}</b> 要付給 <b>${escapeHtml(t.to)}</b>　<span class="settlement-transfer__amount">${symbol}${t.amount.toLocaleString()}</span></p>`));
-    });
-  } else {
-    card.appendChild(el(`<p class="field-hint" style="margin-top:8px;">目前帳務已平衡，不用互轉。</p>`));
-  }
-  wrap.appendChild(card);
-}
-
 function renderExpenses() {
   const trip = currentTrip();
   if (!trip) return;
@@ -1417,8 +1411,8 @@ function renderExpenses() {
   $("#totalJPY").textContent = symbol + total.toLocaleString();
   $("#totalTWD").textContent = "NT$" + Math.round(total * trip.exRate).toLocaleString();
 
-  const budgetWrap = $("#budgetSection");
-  budgetWrap.innerHTML = "";
+  const heroBudgetWrap = $("#heroBudgetBar");
+  heroBudgetWrap.innerHTML = "";
   const budget = trip.budget || emptyBudget();
   let budgetHtml = "";
   if (budget.total) budgetHtml += budgetBarHtml(total, budget.total, `總預算（${symbol}）`);
@@ -1428,11 +1422,9 @@ function renderExpenses() {
     const spent = trip.expenses.filter((e) => e.category === c.key).reduce((s, e) => s + Number(e.amount || 0), 0);
     budgetHtml += budgetBarHtml(spent, limit, `${c.icon} ${c.key}`);
   });
-  if (budgetHtml) budgetWrap.appendChild(el(`<div class="card budget-card">${budgetHtml}</div>`));
-  else budgetWrap.appendChild(el(`<div class="empty-hint">還沒有設定預算，可以到 ⚙️ 設定頁設定總預算或分類預算，這裡會顯示花費進度。</div>`));
+  if (budgetHtml) heroBudgetWrap.appendChild(el(`<div class="hero-budget">${budgetHtml}</div>`));
 
-  renderMembers();
-  renderSettlement();
+  renderSplitCard();
 
   const byCat = $("#expenseByCategory");
   byCat.innerHTML = "";
@@ -1443,7 +1435,7 @@ function renderExpenses() {
 
   const list = $("#expenseList");
   list.innerHTML = "";
-  if (!trip.expenses.length) { list.appendChild(el(`<div class="empty-hint">還沒有花費紀錄，出發後隨手記一下吧！</div>`)); return; }
+  if (!trip.expenses.length) { list.appendChild(el(`<div class="empty-hint">還沒有花費紀錄，點右下角 ＋ 隨手記一筆吧！</div>`)); return; }
   trip.expenses.slice().reverse().forEach((e) => {
     const payerText = e.payerId ? `由 ${escapeHtml(memberName(trip, e.payerId))} 付款` : "";
     const splitText = e.splitWith && e.splitWith.length ? `均分：${e.splitWith.map((id) => escapeHtml(memberName(trip, id))).join("、")}` : "";
