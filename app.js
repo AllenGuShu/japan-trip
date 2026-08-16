@@ -547,6 +547,27 @@ let syncEnabled = false;
 let db = null;
 let activeSyncUnsub = null;
 const pushTimers = {};
+let syncStatus = { state: "idle", message: "", at: null }; // state: idle | syncing | ok | error
+
+function setSyncStatus(state, message) {
+  syncStatus = { state, message, at: Date.now() };
+  const el2 = $("#syncStatusLine");
+  if (el2) renderSyncStatusLine(el2);
+}
+function friendlySyncError(err) {
+  const code = (err && (err.code || err.message)) || String(err);
+  if (String(code).includes("permission-denied")) return "權限被拒絕（permission-denied）—— 最常見原因是 Firestore 安全規則沒有正確發布，請到 Firebase 後台 Firestore Database →「規則」確認內容跟 README 裡的一致並按「發布」。";
+  if (String(code).includes("unavailable") || String(code).includes("network")) return "連不上網路，請檢查網路連線後再試一次。";
+  if (String(code).includes("not-found")) return "找不到這趟旅遊的雲端資料，可能已被刪除。";
+  return `發生錯誤：${code}`;
+}
+function renderSyncStatusLine(elm) {
+  if (syncStatus.state === "idle") { elm.textContent = ""; return; }
+  const time = syncStatus.at ? new Date(syncStatus.at).toLocaleTimeString("zh-TW") : "";
+  if (syncStatus.state === "syncing") { elm.textContent = "🔄 同步中..."; elm.className = "field-hint"; }
+  else if (syncStatus.state === "ok") { elm.textContent = `✓ 已同步（${time}）`; elm.className = "field-hint field-hint--ok"; }
+  else if (syncStatus.state === "error") { elm.textContent = `⚠️ ${syncStatus.message}`; elm.className = "field-hint field-hint--warn"; }
+}
 
 function initFirebaseIfConfigured() {
   const cfg = window.FIREBASE_CONFIG;
@@ -568,9 +589,15 @@ function generateShareCode() {
 function pushTripToCloud(trip) {
   if (!syncEnabled || !trip.syncCode || !db) return;
   clearTimeout(pushTimers[trip.id]);
+  setSyncStatus("syncing", "");
   pushTimers[trip.id] = setTimeout(() => {
     const clean = JSON.parse(JSON.stringify(trip));
-    db.collection("trips").doc(trip.syncCode).set(clean).catch((e) => console.warn("同步上傳失敗", e));
+    db.collection("trips").doc(trip.syncCode).set(clean).then(() => {
+      setSyncStatus("ok", "");
+    }).catch((e) => {
+      console.warn("同步上傳失敗", e);
+      setSyncStatus("error", friendlySyncError(e));
+    });
   }, 800);
 }
 
@@ -589,10 +616,14 @@ function subscribeTripSync(trip) {
     if (idx === -1) return;
     JOURNAL.trips[idx] = remote;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(JOURNAL));
+    setSyncStatus("ok", "");
     if (appState.screen === "trip" && appState.tripId === trip.id) {
       renderTripHeader(); renderDaysView(); renderExpenses(); renderPhrases(); renderLogistics(); renderSettings();
     }
-  }, (err) => { console.warn("同步監聽失敗", err); });
+  }, (err) => {
+    console.warn("同步監聽失敗", err);
+    setSyncStatus("error", friendlySyncError(err));
+  });
 }
 
 async function enableSync(trip) {
@@ -604,11 +635,12 @@ async function enableSync(trip) {
     await db.collection("trips").doc(code).set(clean);
     trip.syncCode = code;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(JOURNAL));
+    setSyncStatus("ok", "");
     subscribeTripSync(trip);
     renderSettings();
     renderTripHeader();
   } catch (e) {
-    alert("啟用共同編輯失敗，請確認網路連線或 Firebase 設定是否正確。");
+    alert("啟用共同編輯失敗：" + friendlySyncError(e));
   }
 }
 
@@ -1984,6 +2016,8 @@ function renderSettings() {
         <p class="field-hint" style="margin-top:10px;">或者也可以只給代碼，讓對方自己到首頁「加入共編旅遊」輸入：</p>
         <p class="sync-code">${trip.syncCode}</p>
         <button class="btn btn--ghost" id="s-copy-code">📋 複製代碼</button>
+        <p class="field-hint" id="syncStatusLine"></p>
+        <button class="btn btn--ghost" id="s-force-sync" style="margin-top:8px;">🔄 立即重新連線並同步一次</button>
         <button class="btn btn--danger" id="s-stop-sync" style="margin-top:8px;">停止同步（僅此裝置退出，其他人不受影響）</button>
       ` : `
         <p class="field-hint">開啟後會產生一組代碼，分享給朋友，大家就能同時編輯這趟旅遊的行程和記帳，改動即時同步。</p>
@@ -2018,9 +2052,16 @@ function renderSettings() {
       btn.textContent = "已複製 ✓";
       setTimeout(() => { btn.textContent = "📋 複製代碼"; }, 1500);
     });
+    form.querySelector("#s-force-sync").addEventListener("click", () => {
+      setSyncStatus("syncing", "");
+      subscribeTripSync(trip);
+      pushTripToCloud(trip);
+    });
     form.querySelector("#s-stop-sync").addEventListener("click", () => {
       if (confirm("確定要停止同步嗎？此裝置之後的變更就不會再跟其他人同步。")) disableSync(currentTrip());
     });
+    const statusLine = form.querySelector("#syncStatusLine");
+    if (statusLine) renderSyncStatusLine(statusLine);
   }
 
   form.querySelector("#s-country").addEventListener("change", (e) => { form.querySelector("#s-custom-wrap").style.display = e.target.value === "__custom" ? "block" : "none"; });
