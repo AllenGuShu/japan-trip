@@ -81,9 +81,15 @@
       <div class="view-head">
         <h2>每日行程</h2>
       </div>
-      <div class="filter-row" id="itineraryModeBar"></div>
-      <div class="day-tabs" id="dayTabs"></div>
-      <div id="dayRoad" class="road"></div>
+      <div class="itinerary-search">
+        <input type="search" id="itinerarySearch" placeholder="🔍 搜尋景點、行程點..." />
+      </div>
+      <div id="searchResults" hidden></div>
+      <div id="normalItineraryArea">
+        <div class="filter-row" id="itineraryModeBar"></div>
+        <div class="day-tabs" id="dayTabs"></div>
+        <div id="dayRoad" class="road"></div>
+      </div>
     </section>
 
     <!-- 記帳 -->
@@ -154,6 +160,8 @@
 
 <!-- Modal host -->
 <div id="modalRoot" class="modal-root"></div>
+
+<div id="undoToast" class="undo-toast" hidden></div>
 
 <!-- 安裝提示橫幅 -->
 <div id="installBanner" class="install-banner" hidden>

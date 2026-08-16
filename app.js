@@ -158,7 +158,7 @@ function migrateV2Trip(old) {
     budget: old.budget || emptyBudget(),
     createdAt: old.createdAt || Date.now(),
     spots: (old.spots || []).map((s) => ({ tags: [], ...s })),
-    days: old.days && old.days.length ? old.days.map((d) => ({ journal: "", weatherCache: null, ...d, stops: (d.stops||[]).map(s=>({tags:[],lat:null,lng:null,...s})) })) : [],
+    days: old.days && old.days.length ? old.days.map((d) => ({ journal: "", weatherCache: null, ...d, stops: (d.stops||[]).map(s=>({tags:[],lat:null,lng:null,completed:false,...s})) })) : [],
     packing: old.packing || defaultPacking("日圓", true),
     expenses: (old.expenses || []).map((e) => ({ payerId: null, splitWith: [], date: null, currency: null, ...e })),
     members: old.members || [],
@@ -199,7 +199,7 @@ function loadJournal() {
           (t.days || []).forEach((d) => {
             if (d.journal === undefined) d.journal = "";
             if (d.weatherCache === undefined) d.weatherCache = null;
-            (d.stops || []).forEach((s) => { if (!s.tags) s.tags = []; if (s.lat === undefined) s.lat = null; if (s.lng === undefined) s.lng = null; });
+            (d.stops || []).forEach((s) => { if (!s.tags) s.tags = []; if (s.lat === undefined) s.lat = null; if (s.lng === undefined) s.lng = null; if (s.completed === undefined) s.completed = false; });
           });
         });
         return parsed;
@@ -823,6 +823,8 @@ function openTrip(id) {
   logisticsSubTab = "flights";
   switchScreen("trip");
   switchView("days");
+  if ($("#itinerarySearch")) $("#itinerarySearch").value = "";
+  renderItinerarySearch("");
   renderTripHeader();
   renderDaysView();
   renderExpenses();
@@ -1039,6 +1041,53 @@ let currentDayIdx = 0;
 let daySortableInstance = null;
 let itineraryMode = "full";
 
+function renderItinerarySearch(query) {
+  const trip = currentTrip();
+  const resultsWrap = $("#searchResults");
+  const normalArea = $("#normalItineraryArea");
+  if (!trip || !resultsWrap || !normalArea) return;
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    resultsWrap.hidden = true;
+    normalArea.style.display = "";
+    return;
+  }
+  normalArea.style.display = "none";
+  resultsWrap.hidden = false;
+  resultsWrap.innerHTML = "";
+  const matches = [];
+  trip.days.forEach((day, dayIdx) => {
+    day.stops.forEach((stop) => {
+      const haystack = [stop.name, ...(stop.tags || []), stop.note || ""].join(" ").toLowerCase();
+      if (haystack.includes(q)) matches.push({ day, dayIdx, stop });
+    });
+  });
+  if (!matches.length) {
+    resultsWrap.appendChild(el(`<div class="empty-hint">找不到符合「${escapeHtml(query)}」的行程點</div>`));
+    return;
+  }
+  matches.forEach(({ day, dayIdx, stop }) => {
+    const tagText = (stop.tags || []).length ? stop.tags.join("、") : "";
+    const row = el(`
+      <button type="button" class="card search-result-row ${stop.completed ? "is-completed" : ""}">
+        <span class="search-result-row__day">${escapeHtml(day.label)}</span>
+        <span class="search-result-row__body">
+          <span class="search-result-row__name">${escapeHtml(stop.name)}</span>
+          <span class="search-result-row__meta">${stop.time ? escapeHtml(stop.time) + "　" : ""}${escapeHtml(tagText)}</span>
+        </span>
+      </button>
+    `);
+    row.addEventListener("click", () => {
+      currentDayIdx = dayIdx;
+      itineraryMode = "daily";
+      $("#itinerarySearch").value = "";
+      renderItinerarySearch("");
+      renderDaysView();
+    });
+    resultsWrap.appendChild(row);
+  });
+}
+
 function renderDaysView() {
   const modeBar = $("#itineraryModeBar");
   modeBar.innerHTML = "";
@@ -1086,10 +1135,11 @@ function renderSingleDay() {
       if (idx > 0 && stop.drive) roadInner.appendChild(el(`<div class="drive-chip">🚗 車程約 ${escapeHtml(stop.drive)}</div>`));
       const tagPills = (stop.tags || []).map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join("");
       const card = el(`
-        <div class="road-stop" data-stop-id="${stop.id}">
+        <div class="road-stop ${stop.completed ? "is-completed" : ""}" data-stop-id="${stop.id}">
           <div class="card">
             <div class="stop-drag-row">
               <span class="drag-handle" title="拖曳排序">⠿</span>
+              <label class="stop-check"><input type="checkbox" ${stop.completed ? "checked" : ""} /><span>已完成</span></label>
               ${stop.time ? `<span class="stop-time">${escapeHtml(stop.time)}</span>` : ""}
             </div>
             <p class="stop-name">${escapeHtml(stop.name)}</p>
@@ -1104,7 +1154,8 @@ function renderSingleDay() {
           </div>
         </div>
       `);
-      card.querySelector("[data-del]").addEventListener("click", () => { day.stops = day.stops.filter((x) => x.id !== stop.id); saveJournal(); renderSingleDay(); });
+      card.querySelector(".stop-check input").addEventListener("change", (e) => { stop.completed = e.target.checked; saveJournal(); renderSingleDay(); });
+      card.querySelector("[data-del]").addEventListener("click", () => { deleteWithUndo(day.stops, stop, `已刪除「${stop.name}」`, renderSingleDay); });
       card.querySelector("[data-edit]").addEventListener("click", () => openStopForm(day, stop));
       roadInner.appendChild(card);
     });
@@ -1186,7 +1237,10 @@ function renderFullItinerary() {
     const events = dayEventsFor(trip, day);
     const isOpen = expandedDays.has(day.id);
     const summaryBits = [];
-    if (day.stops.length) summaryBits.push(`🛣️ ${day.stops.length} 站`);
+    if (day.stops.length) {
+      const completedCount = day.stops.filter((s) => s.completed).length;
+      summaryBits.push(`🛣️ ${completedCount ? `${completedCount}/` : ""}${day.stops.length} 站`);
+    }
     if (events.length) summaryBits.push(`${events.length} 項提醒`);
     if (day.journal) summaryBits.push(`📝`);
 
@@ -1220,12 +1274,15 @@ function renderFullItinerary() {
       day.stops.forEach((stop, idx) => {
         if (idx > 0 && stop.drive) inner.appendChild(el(`<div class="drive-chip drive-chip--compact">🚗 ${escapeHtml(stop.drive)}</div>`));
         const tagText = (stop.tags || []).length ? " · " + stop.tags.join("、") : "";
-        inner.appendChild(el(`
-          <div class="full-stop-row">
+        const row = el(`
+          <div class="full-stop-row ${stop.completed ? "is-completed" : ""}">
+            <input type="checkbox" class="full-stop-check" ${stop.completed ? "checked" : ""} />
             ${stop.time ? `<span class="stop-time">${escapeHtml(stop.time)}</span>` : `<span class="full-stop-dot">・</span>`}
             <span class="full-stop-name">${escapeHtml(stop.name)}${tagText ? `<span class="full-stop-tags">${escapeHtml(tagText)}</span>` : ""}</span>
           </div>
-        `));
+        `);
+        row.querySelector(".full-stop-check").addEventListener("change", (e) => { stop.completed = e.target.checked; saveJournal(); renderFullItinerary(); });
+        inner.appendChild(row);
       });
       body.appendChild(inner);
     }
@@ -1298,7 +1355,7 @@ function openStopForm(day, existingStop = null) {
       if (isEdit) {
         Object.assign(existingStop, values);
       } else {
-        day.stops.push({ id: uid(), ...values });
+        day.stops.push({ id: uid(), completed: false, ...values });
       }
       saveJournal(); renderDaysView(); closeModal();
     });
@@ -1468,6 +1525,7 @@ function renderSplitCard() {
   trip.members.forEach((m) => {
     const chip = el(`<span class="member-chip">${escapeHtml(m.name)}<button class="member-chip__del" data-del="${m.id}">✕</button></span>`);
     chip.querySelector("[data-del]").addEventListener("click", () => {
+      if (!confirm(`確定要移除成員「${m.name}」嗎？他在各筆花費裡的付款/分攤紀錄也會一併清除。`)) return;
       trip.members = trip.members.filter((x) => x.id !== m.id);
       trip.expenses.forEach((e) => {
         if (e.payerId === m.id) e.payerId = null;
@@ -1682,7 +1740,7 @@ function renderExpenses() {
         <button class="btn btn--danger" data-del>刪</button>
       </div>
     `);
-    row.querySelector("[data-del]").addEventListener("click", () => { trip.expenses = trip.expenses.filter((x) => x.id !== e.id); saveJournal(); renderExpenses(); });
+    row.querySelector("[data-del]").addEventListener("click", () => { deleteWithUndo(trip.expenses, e, `已刪除「${e.title||e.category}」`, renderExpenses); });
     row.querySelector("[data-edit]").addEventListener("click", () => openExpenseForm(e));
     list.appendChild(row);
   });
@@ -1841,7 +1899,7 @@ function phraseCard(p, deletable = false, trip = null) {
       ${deletable ? `<div style="margin-top:8px;"><button class="btn btn--danger" data-del>刪除</button></div>` : ""}
     </div>
   `);
-  if (deletable) node.querySelector("[data-del]").addEventListener("click", () => { trip.customPhrases = trip.customPhrases.filter((x) => x.id !== p.id); saveJournal(); renderPhrases(); });
+  if (deletable) node.querySelector("[data-del]").addEventListener("click", () => { deleteWithUndo(trip.customPhrases, p, "已刪除自訂例句", renderPhrases); });
   return node;
 }
 function openPhraseForm() {
@@ -1904,7 +1962,7 @@ function renderLogistics() {
           </div>
         </div>
       `);
-      card.querySelector("[data-del]").addEventListener("click", () => { trip.flights = trip.flights.filter((x)=>x.id!==f.id); saveJournal(); renderLogistics(); renderDaysView(); });
+      card.querySelector("[data-del]").addEventListener("click", () => { deleteWithUndo(trip.flights, f, "已刪除航班", () => { renderLogistics(); renderDaysView(); }); });
       card.querySelector("[data-edit]").addEventListener("click", () => openFlightForm(f));
       content.appendChild(card);
     });
@@ -1931,7 +1989,7 @@ function renderLogistics() {
           </div>
         </div>
       `);
-      card.querySelector("[data-del]").addEventListener("click", () => { trip.lodging = trip.lodging.filter((x)=>x.id!==l.id); saveJournal(); renderLogistics(); renderDaysView(); });
+      card.querySelector("[data-del]").addEventListener("click", () => { deleteWithUndo(trip.lodging, l, `已刪除「${l.name}」`, () => { renderLogistics(); renderDaysView(); }); });
       card.querySelector("[data-edit]").addEventListener("click", () => openLodgingForm(l));
       content.appendChild(card);
     });
@@ -1956,7 +2014,7 @@ function renderLogistics() {
           </div>
         </div>
       `);
-      card.querySelector("[data-del]").addEventListener("click", () => { trip.transportItems = trip.transportItems.filter((x)=>x.id!==t.id); saveJournal(); renderLogistics(); renderDaysView(); });
+      card.querySelector("[data-del]").addEventListener("click", () => { deleteWithUndo(trip.transportItems, t, "已刪除交通資訊", () => { renderLogistics(); renderDaysView(); }); });
       card.querySelector("[data-edit]").addEventListener("click", () => openTransportForm(t));
       content.appendChild(card);
     });
@@ -1982,7 +2040,7 @@ function renderLogistics() {
         `);
         row.querySelector('input[type="checkbox"]').addEventListener("change", (e) => { item.done = e.target.checked; saveJournal(); renderLogistics(); });
         row.querySelector("[data-edit]").addEventListener("click", () => openPackingItemEditForm(item));
-        row.querySelector("[data-del]").addEventListener("click", () => { group.items = group.items.filter((x) => x.id !== item.id); saveJournal(); renderLogistics(); });
+        row.querySelector("[data-del]").addEventListener("click", () => { deleteWithUndo(group.items, item, `已刪除「${item.text}」`, renderLogistics); });
         wrap.appendChild(row);
       });
     });
@@ -2408,6 +2466,36 @@ function renderSettings() {
 }
 
 /* ===================== Modal 系統 ===================== */
+/* ===================== 刪除保護（可復原） ===================== */
+let undoTimeoutId = null;
+function showUndoToast(message, restoreFn) {
+  clearTimeout(undoTimeoutId);
+  const toast = $("#undoToast");
+  if (!toast) return;
+  toast.innerHTML = `<span class="undo-toast__msg">${escapeHtml(message)}</span><button class="undo-toast__btn" id="undoBtn">復原</button>`;
+  toast.hidden = false;
+  const btn = toast.querySelector("#undoBtn");
+  btn.onclick = () => {
+    clearTimeout(undoTimeoutId);
+    toast.hidden = true;
+    restoreFn();
+  };
+  undoTimeoutId = setTimeout(() => { toast.hidden = true; }, 5000);
+}
+function deleteWithUndo(array, item, message, onChange) {
+  const idx = array.indexOf(item);
+  if (idx === -1) return;
+  array.splice(idx, 1);
+  saveJournal();
+  onChange();
+  showUndoToast(message, () => {
+    array.splice(idx, 0, item);
+    saveJournal();
+    onChange();
+  });
+}
+
+/* ===================== Modal 系統 ===================== */
 function openModal(innerHtml, onMount) {
   const root = $("#modalRoot");
   root.innerHTML = "";
@@ -2484,6 +2572,7 @@ function init() {
   $("#openSettings").addEventListener("click", () => switchView("settings"));
   $("#fetchRateBtn").addEventListener("click", fetchLiveRate);
   $("#exportCsvBtn").addEventListener("click", () => { const trip = currentTrip(); if (trip) exportExpensesCSV(trip); });
+  $("#itinerarySearch").addEventListener("input", (e) => renderItinerarySearch(e.target.value));
   $("#importTripBtn").addEventListener("click", importTripFile);
   $("#joinSyncBtn").addEventListener("click", openJoinSyncForm);
   $("#openGlobalSettings").addEventListener("click", openGlobalSettings);

@@ -297,6 +297,25 @@ main#views {
 }
 
 /* ---------- Day tabs + Road timeline (signature element) ---------- */
+.itinerary-search { margin-bottom: 12px; }
+.itinerary-search input {
+  width: 100%; border: 1px solid var(--line); border-radius: 999px;
+  padding: 10px 16px; font-size: 13.5px; background: var(--card); color: var(--ink);
+}
+.itinerary-search input::-webkit-search-cancel-button { cursor: pointer; }
+.search-result-row {
+  width: 100%; display: flex; align-items: center; gap: 12px;
+  text-align: left; margin-bottom: 8px; cursor: pointer; border: none;
+}
+.search-result-row__day {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  background: var(--green-mist); color: var(--green-deep); padding: 4px 8px; border-radius: 8px; flex: none;
+}
+.search-result-row__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.search-result-row__name { font-weight: 700; font-size: 14px; }
+.search-result-row.is-completed .search-result-row__name { color: var(--ink-soft); text-decoration: line-through; }
+.search-result-row__meta { font-size: 11.5px; color: var(--ink-soft); font-family: var(--font-mono); }
+
 .day-tabs {
   display: flex;
   gap: 6px;
@@ -695,6 +714,27 @@ main#views {
 }
 
 /* ---------- Install banner (讓 App 感更完整) ---------- */
+/* ---------- 刪除復原提示條 ---------- */
+.undo-toast {
+  position: fixed;
+  left: 12px; right: 12px;
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  z-index: 35;
+  background: var(--ink);
+  color: #fff;
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+  padding: 10px 10px 10px 18px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  max-width: 460px; margin: 0 auto;
+}
+.undo-toast[hidden] { display: none; }
+.undo-toast__msg { font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.undo-toast__btn {
+  background: var(--gold); color: var(--green-deep); border: none; border-radius: 999px;
+  padding: 6px 14px; font-size: 12.5px; font-weight: 700; cursor: pointer; flex: none;
+}
+
 .install-banner {
   position: fixed;
   left: 12px; right: 12px;
@@ -776,12 +816,21 @@ main#views {
   padding: 7px 0; border-bottom: 1px dashed var(--line);
   font-size: 13.5px;
 }
+.full-stop-check { flex: none; width: 16px; height: 16px; accent-color: var(--green); align-self: center; }
+.full-stop-row.is-completed .full-stop-name { color: var(--ink-soft); text-decoration: line-through; }
 .full-stop-list .full-stop-row:last-child { border-bottom: none; }
 .full-stop-time { font-family: var(--font-mono); font-weight: 700; color: var(--green-deep); font-size: 12px; flex: none; min-width: 40px; }
 .full-stop-dot { color: var(--ink-soft); flex: none; min-width: 40px; }
 .full-stop-name { flex: 1; min-width: 0; overflow-wrap: break-word; }
 .full-stop-tags { font-size: 11px; color: var(--ink-soft); }
 .drive-chip--compact { font-size: 11px; padding: 2px 0 2px 48px; color: var(--ink-soft); }
+.stop-check {
+  display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ink-soft);
+  cursor: pointer; margin-left: auto;
+}
+.stop-check input { width: 15px; height: 15px; accent-color: var(--green); }
+.road-stop.is-completed .stop-name { color: var(--ink-soft); text-decoration: line-through; }
+.road-stop.is-completed .card { background: var(--green-mist); }
 .journal-field { margin: 14px 0; }
 .journal-field textarea { min-height: 70px; }
 .journal-recap { margin-top: 10px; background: var(--orange-mist); border: none; }
