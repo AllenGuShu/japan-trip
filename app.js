@@ -34,8 +34,8 @@ function findCountryEntry(countryName) { return COUNTRY_CURRENCY.find((c) => c.c
 
 const STOP_TAGS = ["美食", "購物", "自然", "文化", "歷史", "夜景", "親子", "秘境", "打卡"];
 const EXPENSE_CATS = [
-  { key: "交通", icon: "🚗" }, { key: "住宿", icon: "🏨" }, { key: "餐飲", icon: "🍜" },
-  { key: "門票", icon: "🎫" }, { key: "購物", icon: "🛍️" }, { key: "其他", icon: "🧾" },
+  { key: "交通", icon: "🚗", color: "#2B4C6F" }, { key: "住宿", icon: "🏨", color: "#C1440E" }, { key: "餐飲", icon: "🍜", color: "#C9A227" },
+  { key: "門票", icon: "🎫", color: "#4A7C7C" }, { key: "購物", icon: "🛍️", color: "#8B5FA3" }, { key: "其他", icon: "🧾", color: "#9C8B73" },
 ];
 const FLIGHT_DIRECTIONS = ["去程", "回程", "轉機", "其他"];
 const TRANSPORT_TYPES = ["租車", "火車", "新幹線", "公車", "捷運/地鐵", "渡輪", "計程車/叫車", "其他"];
@@ -819,6 +819,7 @@ function openTrip(id) {
   currentDayIdx = 0;
   itineraryMode = "full";
   expandedDays = new Set();
+  chartsExpanded = false;
   logisticsSubTab = "flights";
   switchScreen("trip");
   switchView("days");
@@ -835,6 +836,15 @@ function openTrip(id) {
 }
 
 /* ===================== 首頁：旅遊列表 ===================== */
+function daysUntilDate(dateStr) {
+  if (!dateStr) return null;
+  const match = dateStr.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!match) return null;
+  const target = new Date(+match[1], +match[2] - 1, +match[3]);
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  return Math.round((target - now) / 86400000);
+}
+
 function renderHome() {
   $("#tripCount").textContent = `${JOURNAL.trips.length} 趟旅程`;
   const list = $("#tripList");
@@ -845,6 +855,26 @@ function renderHome() {
   }
   JOURNAL.trips.slice().sort((a, b) => b.createdAt - a.createdAt).forEach((trip) => {
     const stopCount = trip.days.reduce((s, d) => s + d.stops.length, 0);
+    const daysLeft = daysUntilDate(trip.days[0]?.date);
+    let countdownHtml = "";
+    if (daysLeft !== null) {
+      const cls = daysLeft < 0 ? "past" : daysLeft <= 3 ? "soon" : "";
+      const text = daysLeft > 0 ? `${daysLeft} 天後出發` : daysLeft === 0 ? "今天出發！" : "旅途愉快 🎌";
+      countdownHtml = `<span class="trip-card__countdown ${cls}">${text}</span>`;
+    }
+    const budget = trip.budget || emptyBudget();
+    let budgetHtml = "";
+    if (budget.total) {
+      const spent = trip.expenses.reduce((s, e) => s + expenseInTripCurrency(trip, e), 0);
+      const pct = Math.min(spent / budget.total, 1);
+      const over = spent > budget.total;
+      const cls = over ? "over" : pct >= 0.8 ? "warn" : "ok";
+      budgetHtml = `
+        <div class="trip-card__budget">
+          <div class="mini-bar"><div class="mini-bar__fill ${cls}" style="width:${pct*100}%;"></div></div>
+          <span class="mini-bar__text">${escapeHtml(trip.currency.symbol||"")}${Math.round(spent).toLocaleString()} / ${Math.round(budget.total).toLocaleString()}</span>
+        </div>`;
+    }
     const card = el(`
       <div class="trip-card-wrap">
         <button class="trip-card">
@@ -852,7 +882,8 @@ function renderHome() {
           <div class="trip-card__body">
             <p class="trip-card__title">${trip.flag || "🌍"} ${escapeHtml(trip.title)}${trip.syncCode ? ` <span class="sync-badge">🔄 共編中</span>` : ""}</p>
             <p class="trip-card__meta">${escapeHtml(trip.country || "")} · ${trip.dayCount}天${Math.max(trip.dayCount - 1, 0)}夜 · ${escapeHtml(trip.transport || "")}${trip.dateRange ? " · " + escapeHtml(trip.dateRange) : ""}</p>
-            <div class="trip-card__stats"><span>🛣️ ${stopCount} 個行程點</span></div>
+            <div class="trip-card__stats"><span>🛣️ ${stopCount} 個行程點</span>${countdownHtml}</div>
+            ${budgetHtml}
           </div>
         </button>
         <button class="trip-card__menu" data-menu title="更多">⋯</button>
@@ -1324,6 +1355,55 @@ async function calcDriveTimesForDay(day, trip, statusEl) {
 
 /* ===================== 記帳（含預算 + 分帳結算） ===================== */
 function iconFor(cat) { return (EXPENSE_CATS.find((c) => c.key === cat) || {}).icon || "🧾"; }
+/* ---------- 輕量圖表工具（純 SVG/CSS，不依賴外部套件） ---------- */
+function buildDonutSVG(segments, size) {
+  size = size || 108;
+  const total = segments.reduce((s, x) => s + x.value, 0);
+  const radius = size / 2 - 9;
+  const cx = size / 2, cy = size / 2;
+  const circumference = 2 * Math.PI * radius;
+  if (!total) {
+    return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}"><circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="var(--line)" stroke-width="14" /></svg>`;
+  }
+  let offset = 0;
+  let circles = "";
+  segments.forEach((seg) => {
+    if (seg.value <= 0) return;
+    const frac = seg.value / total;
+    const dash = frac * circumference;
+    circles += `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="${seg.color}" stroke-width="14" stroke-dasharray="${dash} ${circumference - dash}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})" />`;
+    offset += dash;
+  });
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${circles}</svg>`;
+}
+function buildProgressRing(done, total, size) {
+  size = size || 40;
+  const pct = total ? done / total : 0;
+  const radius = size / 2 - 4;
+  const cx = size / 2, cy = size / 2;
+  const circumference = 2 * Math.PI * radius;
+  const dash = pct * circumference;
+  return `
+    <svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" class="progress-ring">
+      <circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="var(--line)" stroke-width="4" />
+      <circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="var(--green)" stroke-width="4"
+        stroke-dasharray="${dash} ${circumference - dash}" stroke-linecap="round"
+        transform="rotate(-90 ${cx} ${cy})" />
+    </svg>
+  `;
+}
+function buildBarChartHtml(items) {
+  // items: [{label, value}]
+  const max = Math.max(...items.map((d) => d.value), 1);
+  return `<div class="bar-chart">${items.map((d) => `
+    <div class="bar-chart__col">
+      <div class="bar-chart__val">${Math.round(d.value).toLocaleString()}</div>
+      <div class="bar-chart__track"><div class="bar-chart__bar" style="height:${Math.max(6, Math.round(d.value / max * 88))}px;"></div></div>
+      <div class="bar-chart__label">${escapeHtml(d.label)}</div>
+    </div>
+  `).join("")}</div>`;
+}
+
 function budgetBarHtml(spent, budget, label) {
   if (budget == null || budget <= 0) return "";
   const pct = Math.min(spent / budget, 1);
@@ -1486,6 +1566,61 @@ function exportExpensesCSV(trip) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+function shortDateLabel(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${Number(m)}/${Number(d)}`;
+}
+
+let chartsExpanded = false;
+function renderExpenseCharts(trip, catSums, symbol) {
+  const wrap = $("#chartsSection");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  if (!trip.expenses.length) return;
+
+  const card = el(`<div class="card charts-card"></div>`);
+  const header = el(`<button type="button" class="charts-toggle ${chartsExpanded ? "is-open" : ""}"><span class="full-day-chevron">▸</span><span>📊 花費圖表</span></button>`);
+  const body = el(`<div class="charts-body"></div>`);
+  body.hidden = !chartsExpanded;
+  header.addEventListener("click", () => {
+    chartsExpanded = body.hidden;
+    body.hidden = !chartsExpanded;
+    header.classList.toggle("is-open", chartsExpanded);
+  });
+
+  const segments = EXPENSE_CATS.map((c) => ({ value: catSums[c.key] || 0, color: c.color, label: c.key, icon: c.icon }));
+  const totalSum = segments.reduce((s, x) => s + x.value, 0);
+  const legendHtml = segments.filter((s) => s.value > 0).map((s) => `
+    <div class="donut-legend__row">
+      <span class="donut-legend__dot" style="background:${s.color}"></span>
+      <span class="donut-legend__label">${s.icon} ${s.label}</span>
+      <span class="donut-legend__val">${symbol}${Math.round(s.value).toLocaleString()}（${totalSum ? Math.round(s.value / totalSum * 100) : 0}%）</span>
+    </div>
+  `).join("");
+  body.appendChild(el(`
+    <div>
+    <p class="charts-subtitle">分類佔比</p>
+    <div class="donut-block">
+      <div class="donut-block__chart">${buildDonutSVG(segments)}</div>
+      <div class="donut-block__legend">${legendHtml}</div>
+    </div>
+    </div>
+  `));
+
+  const byDate = {};
+  trip.expenses.forEach((e) => { if (e.date) byDate[e.date] = (byDate[e.date] || 0) + expenseInTripCurrency(trip, e); });
+  const dateKeys = Object.keys(byDate).sort();
+  if (dateKeys.length) {
+    const items = dateKeys.map((k) => ({ label: shortDateLabel(k), value: byDate[k] }));
+    body.appendChild(el(`<div><p class="charts-subtitle" style="margin-top:16px;">每日花費</p>${buildBarChartHtml(items)}</div>`));
+  }
+
+  card.appendChild(header);
+  card.appendChild(body);
+  wrap.appendChild(card);
+}
+
 function renderExpenses() {
   const trip = currentTrip();
   if (!trip) return;
@@ -1515,10 +1650,14 @@ function renderExpenses() {
 
   renderSplitCard();
 
+  const catSums = {};
+  EXPENSE_CATS.forEach((c) => { catSums[c.key] = trip.expenses.filter((e) => e.category === c.key).reduce((s, e) => s + expenseInTripCurrency(trip, e), 0); });
+  renderExpenseCharts(trip, catSums, symbol);
+
   const byCat = $("#expenseByCategory");
   byCat.innerHTML = "";
   EXPENSE_CATS.forEach((c) => {
-    const sum = trip.expenses.filter((e) => e.category === c.key).reduce((s, e) => s + expenseInTripCurrency(trip, e), 0);
+    const sum = catSums[c.key];
     if (sum > 0) byCat.appendChild(el(`<div class="chip static">${c.icon} ${c.key} ${symbol}${Math.round(sum).toLocaleString()}</div>`));
   });
 
@@ -1565,8 +1704,11 @@ function openExpenseForm(existingExpense = null) {
     return `<label class="tag-check"><input type="checkbox" value="${m.id}" ${checked} /><span>${escapeHtml(m.name)}</span></label>`;
   }).join("");
   const existingForeign = isEdit ? existingExpense.currency : null;
-  const currencySelectedValue = existingForeign ? (COUNTRY_CURRENCY.some((c) => c.code === existingForeign.code) ? existingForeign.code : "__custom") : "__trip";
+  const currencySelectedValue = existingForeign
+    ? (existingForeign.code === "TWD" ? "TWD" : (COUNTRY_CURRENCY.some((c) => c.code === existingForeign.code) ? existingForeign.code : "__custom"))
+    : "__trip";
   const currencyOpts = `<option value="__trip">與旅遊相同（${escapeHtml(trip.currency.code || trip.currency.name)}）</option>`
+    + `<option value="TWD" ${currencySelectedValue==="TWD"?"selected":""}>🇹🇼 新台幣（TWD）</option>`
     + COUNTRY_CURRENCY.map((c) => `<option value="${c.code}" ${currencySelectedValue===c.code?"selected":""}>${c.flag} ${c.country}（${c.code}）</option>`).join("")
     + `<option value="__custom" ${currencySelectedValue==="__custom"?"selected":""}>🌍 其他（自訂）</option>`;
   openModal(`
@@ -1613,7 +1755,10 @@ function openExpenseForm(existingExpense = null) {
         }
       }
     }
-    function findCountryEntry2(code) { return COUNTRY_CURRENCY.find((c) => c.code === code); }
+    function findCountryEntry2(code) {
+      if (code === "TWD") return { country: "台灣", flag: "🇹🇼", code: "TWD", symbol: "NT$", name: "新台幣", rate: 1 };
+      return COUNTRY_CURRENCY.find((c) => c.code === code);
+    }
     currencySelect.addEventListener("change", syncCurrencyUI);
     root.querySelector("#f-cur-code").addEventListener("input", (e) => { if (currencySelect.value === "__custom") amountLabel.textContent = e.target.value || "自訂幣別"; });
     if (currencySelectedValue !== "__trip") { foreignWrap.style.display = "flex"; amountLabel.textContent = existingForeign?.name || existingForeign?.code || "自訂幣別"; }
@@ -1725,10 +1870,17 @@ let logisticsSubTab = "flights";
 function renderLogistics() {
   const trip = currentTrip();
   if (!trip) return;
+  const packDone = trip.packing.reduce((s, g) => s + g.items.filter((it) => it.done).length, 0);
+  const packTotal = trip.packing.reduce((s, g) => s + g.items.length, 0);
   const subTabs = $("#logisticsSubTabs");
   subTabs.innerHTML = "";
-  [["flights","✈️ 航班"], ["lodging","🏨 住宿"], ["transport","🚌 交通"], ["packing","🧳 準備"]].forEach(([key,label]) => {
-    const btn = el(`<button class="day-tab ${logisticsSubTab===key?"active":""}">${label}</button>`);
+  [
+    ["flights", "✈️ 航班", trip.flights.length],
+    ["lodging", "🏨 住宿", trip.lodging.length],
+    ["transport", "🚌 交通", trip.transportItems.length],
+    ["packing", "🧳 準備", `${packDone}/${packTotal}`],
+  ].forEach(([key, label, count]) => {
+    const btn = el(`<button class="day-tab ${logisticsSubTab===key?"active":""}">${label}${count !== 0 ? `<span class="day-tab__count">${count}</span>` : ""}</button>`);
     btn.addEventListener("click", () => { logisticsSubTab = key; renderLogistics(); });
     subTabs.appendChild(btn);
   });
@@ -1834,7 +1986,12 @@ function renderLogistics() {
         wrap.appendChild(row);
       });
     });
-    content.appendChild(el(`<div class="view-head" style="margin-bottom:10px;"><span style="font-size:13px;font-weight:700;color:var(--ink-soft);">準備進度</span><span class="progress-pill">${done}/${total}</span></div>`));
+    content.appendChild(el(`
+      <div class="view-head" style="margin-bottom:10px;align-items:center;">
+        <span style="font-size:13px;font-weight:700;color:var(--ink-soft);">準備進度</span>
+        <span class="progress-ring-wrap">${buildProgressRing(done, total, 40)}<span class="progress-ring-text">${done}/${total}</span></span>
+      </div>
+    `));
     content.appendChild(wrap);
     const addBtn = el(`<button class="btn btn--ghost">＋ 新增準備項目</button>`);
     addBtn.addEventListener("click", openPackingForm);

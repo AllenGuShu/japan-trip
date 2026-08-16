@@ -474,6 +474,51 @@ main#views {
 .hero-budget { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
 .expense-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .expense-toolbar .chip-row { flex: 1; }
+
+/* ---------- 圖表：圓餅圖/長條圖/收合卡 ---------- */
+.charts-card { padding: 0; overflow: hidden; margin-bottom: 12px; }
+.charts-toggle {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  background: none; border: none; cursor: pointer; padding: 13px 14px;
+  font-family: var(--font-display); font-weight: 700; font-size: 14px; color: var(--ink); text-align: left;
+}
+.charts-toggle .full-day-chevron { font-size: 11px; color: var(--ink-soft); transition: transform 0.15s; }
+.charts-toggle.is-open .full-day-chevron { transform: rotate(90deg); color: var(--green-deep); }
+.charts-toggle.is-open { color: var(--green-deep); }
+.charts-body { padding: 0 14px 16px; }
+.charts-subtitle { font-size: 12px; font-weight: 700; color: var(--ink-soft); margin: 0 0 10px; }
+.donut-block { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.donut-block__chart { flex: none; }
+.donut-block__legend { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 6px; }
+.donut-legend__row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.donut-legend__dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.donut-legend__label { flex: none; color: var(--ink-soft); }
+.donut-legend__val { font-family: var(--font-mono); font-weight: 700; margin-left: auto; white-space: nowrap; }
+.bar-chart { display: flex; align-items: flex-end; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+.bar-chart__col { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 34px; }
+.bar-chart__val { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-soft); white-space: nowrap; }
+.bar-chart__track { height: 88px; display: flex; align-items: flex-end; }
+.bar-chart__bar { width: 20px; background: var(--green); border-radius: 4px 4px 0 0; }
+.bar-chart__label { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-soft); white-space: nowrap; }
+
+/* ---------- 準備清單圓環進度 ---------- */
+.progress-ring-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.progress-ring-text { position: absolute; font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--ink); }
+
+/* ---------- 首頁卡片：倒數與預算 ---------- */
+.trip-card__countdown {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  background: var(--green-mist); color: var(--green-deep); padding: 2px 8px; border-radius: 999px;
+}
+.trip-card__countdown.soon { background: var(--orange-mist); color: var(--orange); }
+.trip-card__countdown.past { background: var(--card); color: var(--ink-soft); border: 1px solid var(--line); }
+.trip-card__budget { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.mini-bar { flex: 1; height: 5px; border-radius: 999px; background: var(--green-mist); overflow: hidden; }
+.mini-bar__fill { height: 100%; border-radius: 999px; }
+.mini-bar__fill.ok { background: var(--green); }
+.mini-bar__fill.warn { background: var(--gold); }
+.mini-bar__fill.over { background: var(--orange); }
+.mini-bar__text { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-soft); white-space: nowrap; }
 .currency-tag {
   font-family: var(--font-mono); font-size: 10px; font-weight: 700;
   background: var(--orange-mist); color: var(--orange); padding: 1px 6px;
@@ -679,17 +724,22 @@ main#views {
 }
 
 /* ---------- Logistics (flights / lodging / transport) ---------- */
-.logistics-card { display: flex; flex-direction: column; gap: 4px; }
-.logistics-card__head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; flex-wrap: wrap; }
+.logistics-card { display: flex; flex-direction: column; gap: 3px; padding: 11px 12px; }
+.logistics-card__head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13.5px; flex-wrap: wrap; }
 .logistics-card__head > span:last-child { min-width: 0; overflow-wrap: break-word; }
 .logistics-tag {
   font-size: 10.5px; font-weight: 700; background: var(--green); color: #fff;
   padding: 2px 8px; border-radius: 999px; flex: none;
 }
-.logistics-route { font-family: var(--font-mono); font-size: 13.5px; margin: 2px 0; }
+.logistics-route { font-family: var(--font-mono); font-size: 13px; margin: 1px 0; }
 .logistics-time { color: var(--green-deep); font-weight: 700; }
-.logistics-meta { font-size: 12px; color: var(--ink-soft); margin: 0; }
-.logistics-card .btn--danger { align-self: flex-end; margin-top: 4px; }
+.logistics-meta { font-size: 11.5px; color: var(--ink-soft); margin: 0; line-height: 1.4; }
+.logistics-card .btn--danger { align-self: flex-end; margin-top: 2px; }
+.day-tab__count {
+  display: inline-block; margin-left: 5px; font-size: 10.5px; font-weight: 700;
+  background: var(--green-mist); color: var(--green-deep); border-radius: 999px; padding: 1px 6px;
+}
+.day-tab.active .day-tab__count { background: rgba(255,255,255,0.3); color: #fff; }
 
 /* ---------- 完整行程表（可收合的精簡版） ---------- */
 .full-flight-card { font-size: 13px; background: var(--green-mist); border: none; }
