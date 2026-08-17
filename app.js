@@ -393,6 +393,28 @@ function escapeHtml(s = "") {
   return s.replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 }
 function mapUrl(query) { return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(query); }
+
+/* 數字跳動動畫：讓總支出這類重要金額更新時有動態感，而不是瞬間跳字 */
+const numberAnimState = new WeakMap();
+function animateNumberText(elm, prefix, targetValue) {
+  if (!elm) return;
+  const prev = numberAnimState.get(elm);
+  const fromValue = prev != null ? prev : targetValue;
+  numberAnimState.set(elm, targetValue);
+  if (fromValue === targetValue) { elm.textContent = prefix + Math.round(targetValue).toLocaleString(); return; }
+  const duration = 450;
+  const start = performance.now();
+  function tick(now) {
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - t, 3);
+    const current = fromValue + (targetValue - fromValue) * eased;
+    elm.textContent = prefix + Math.round(current).toLocaleString();
+    if (t < 1) requestAnimationFrame(tick);
+    else elm.textContent = prefix + Math.round(targetValue).toLocaleString();
+  }
+  requestAnimationFrame(tick);
+}
+
 function mapUrlForPlace(name, placeId) {
   if (placeId) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}&query_place_id=${encodeURIComponent(placeId)}`;
   return mapUrl(name);
@@ -1252,13 +1274,12 @@ function renderFullItinerary() {
         <span class="full-day-summary">${summaryBits.join("　")}</span>
       </button>
     `);
-    const body = el(`<div class="full-day-body"></div>`);
-    if (!isOpen) body.hidden = true;
+    const body = el(`<div class="full-day-body ${isOpen ? "" : "is-collapsed"}"></div>`);
     header.addEventListener("click", () => {
-      const nowOpen = !body.hidden;
-      body.hidden = nowOpen;
-      header.classList.toggle("is-open", !nowOpen);
-      if (nowOpen) expandedDays.delete(day.id); else expandedDays.add(day.id);
+      const willOpen = body.classList.contains("is-collapsed");
+      body.classList.toggle("is-collapsed", !willOpen);
+      header.classList.toggle("is-open", willOpen);
+      if (willOpen) expandedDays.add(day.id); else expandedDays.delete(day.id);
     });
 
     if (events.length) {
@@ -1639,11 +1660,10 @@ function renderExpenseCharts(trip, catSums, symbol) {
 
   const card = el(`<div class="card charts-card"></div>`);
   const header = el(`<button type="button" class="charts-toggle ${chartsExpanded ? "is-open" : ""}"><span class="full-day-chevron">▸</span><span>📊 花費圖表</span></button>`);
-  const body = el(`<div class="charts-body"></div>`);
-  body.hidden = !chartsExpanded;
+  const body = el(`<div class="charts-body ${chartsExpanded ? "" : "is-collapsed"}"></div>`);
   header.addEventListener("click", () => {
-    chartsExpanded = body.hidden;
-    body.hidden = !chartsExpanded;
+    chartsExpanded = body.classList.contains("is-collapsed");
+    body.classList.toggle("is-collapsed", !chartsExpanded);
     header.classList.toggle("is-open", chartsExpanded);
   });
 
@@ -1687,8 +1707,8 @@ function renderExpenses() {
   const symbol = trip.currency.symbol || "";
   const total = trip.expenses.reduce((s, e) => s + expenseInTripCurrency(trip, e), 0);
   const totalTWD = trip.expenses.reduce((s, e) => s + expenseTWD(trip, e), 0);
-  $("#totalJPY").textContent = symbol + Math.round(total).toLocaleString();
-  $("#totalTWD").textContent = "NT$" + Math.round(totalTWD).toLocaleString();
+  animateNumberText($("#totalJPY"), symbol, total);
+  animateNumberText($("#totalTWD"), "NT$", totalTWD);
   const usedCurrencies = new Set(trip.expenses.map((e) => (e.currency ? e.currency.code : trip.currency.code)));
   const currencyNote = $("#multiCurrencyNote");
   if (currencyNote) currencyNote.textContent = usedCurrencies.size > 1 ? `（使用了 ${usedCurrencies.size} 種貨幣，已換算成 ${symbol} 顯示總額）` : "";

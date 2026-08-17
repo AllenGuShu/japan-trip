@@ -127,7 +127,9 @@ h1, h2, h3, p, span, a, .card, .modal-sheet {
   background: transparent; border: 1.5px solid rgba(255,255,255,0.5); color: #fff;
   border-radius: 999px; width: 26px; height: 26px; font-size: 13px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; padding: 0;
+  transition: transform 0.12s ease, background-color 0.15s ease;
 }
+.icon-btn:active { transform: scale(0.88); background: rgba(255,255,255,0.15); }
 
 /* ---------- Home screen: trip list ---------- */
 .home-main {
@@ -220,9 +222,11 @@ main#views {
   font-weight: 700;
   font-size: 13px;
   cursor: pointer;
+  transition: transform 0.12s ease, background-color 0.15s ease, opacity 0.15s ease;
 }
+.btn:active { transform: scale(0.95); }
 .btn--primary { background: var(--green); color: #fff; }
-.btn--primary:active { background: var(--green-deep); }
+.btn--primary:active { background: var(--green-deep); transform: scale(0.95); }
 .btn--ghost { background: transparent; border: 1.5px dashed var(--line); color: var(--ink-soft); width: 100%; margin-top: 4px; padding: 11px; }
 .btn--outline { background: transparent; border: 1.5px solid var(--green); color: var(--green-deep); }
 .btn--danger { background: transparent; color: var(--orange); font-size: 12px; padding: 4px 8px; }
@@ -235,7 +239,15 @@ main#views {
   padding: 14px;
   box-shadow: var(--shadow);
   border: 1px solid var(--line);
+  animation: cardIn 0.28s ease both;
 }
+@keyframes cardIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.stack > *:nth-child(1) { animation-delay: 0.02s; }
+.stack > *:nth-child(2) { animation-delay: 0.05s; }
+.stack > *:nth-child(3) { animation-delay: 0.08s; }
+.stack > *:nth-child(4) { animation-delay: 0.11s; }
+.stack > *:nth-child(5) { animation-delay: 0.14s; }
+.stack > *:nth-child(n+6) { animation-delay: 0.16s; }
 
 /* ---------- Filters / chips ---------- */
 .filter-row, .chip-row {
@@ -255,9 +267,12 @@ main#views {
   background: var(--card);
   cursor: pointer;
   white-space: nowrap;
+  transition: transform 0.12s ease, background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
+.chip:active { transform: scale(0.94); }
 .chip.active { background: var(--green); border-color: var(--green); color: #fff; }
 .chip.static { cursor: default; }
+.chip.static:active { transform: none; }
 
 /* ---------- Spot card ---------- */
 .spot-card { display: flex; gap: 12px; align-items: flex-start; }
@@ -335,7 +350,9 @@ main#views {
   padding: 8px 14px;
   border-radius: 10px;
   cursor: pointer;
+  transition: transform 0.12s ease, background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
+.day-tab:active { transform: scale(0.95); }
 .day-tab.active { background: var(--green); border-color: var(--green); color: #fff; }
 
 .day-editable-row {
@@ -489,7 +506,9 @@ main#views {
   background: var(--green-mist); border: none; border-radius: 999px;
   width: 24px; height: 24px; font-size: 12px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; padding: 0; flex: none;
+  transition: transform 0.12s ease;
 }
+.icon-btn-mini:active { transform: scale(0.85) rotate(-8deg); }
 .hero-budget { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
 .expense-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .expense-toolbar .chip-row { flex: 1; }
@@ -504,10 +523,19 @@ main#views {
 .charts-toggle .full-day-chevron { font-size: 11px; color: var(--ink-soft); transition: transform 0.15s; }
 .charts-toggle.is-open .full-day-chevron { transform: rotate(90deg); color: var(--green-deep); }
 .charts-toggle.is-open { color: var(--green-deep); }
-.charts-body { padding: 0 14px 16px; }
+.charts-body {
+  padding: 0 14px 16px;
+  overflow: hidden;
+  max-height: 1200px;
+  opacity: 1;
+  transition: max-height 0.32s ease, opacity 0.25s ease, padding 0.3s ease;
+}
+.charts-body.is-collapsed { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
 .charts-subtitle { font-size: 12px; font-weight: 700; color: var(--ink-soft); margin: 0 0 10px; }
 .donut-block { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.donut-block__chart { flex: none; }
+.donut-block__chart { flex: none; animation: chartPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+@keyframes chartPop { from { opacity: 0; transform: scale(0.7) rotate(-30deg); } to { opacity: 1; transform: none; } }
+.bar-chart__bar { transition: height 0.4s ease; }
 .donut-block__legend { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 6px; }
 .donut-legend__row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .donut-legend__dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
@@ -522,6 +550,7 @@ main#views {
 
 /* ---------- 準備清單圓環進度 ---------- */
 .progress-ring-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.progress-ring { animation: chartPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .progress-ring-text { position: absolute; font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--ink); }
 
 /* ---------- 首頁卡片：倒數與預算 ---------- */
@@ -532,8 +561,9 @@ main#views {
 .trip-card__countdown.soon { background: var(--orange-mist); color: var(--orange); }
 .trip-card__countdown.past { background: var(--card); color: var(--ink-soft); border: 1px solid var(--line); }
 .trip-card__budget { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+@keyframes fillBarScale { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .mini-bar { flex: 1; height: 5px; border-radius: 999px; background: var(--green-mist); overflow: hidden; }
-.mini-bar__fill { height: 100%; border-radius: 999px; }
+.mini-bar__fill { height: 100%; border-radius: 999px; transform-origin: left; animation: fillBarScale 0.6s ease-out 0.1s both; }
 .mini-bar__fill.ok { background: var(--green); }
 .mini-bar__fill.warn { background: var(--gold); }
 .mini-bar__fill.over { background: var(--orange); }
@@ -561,8 +591,11 @@ main#views {
   cursor: pointer;
   z-index: 15;
   display: flex; align-items: center; justify-content: center;
+  transition: transform 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  animation: fabIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
-.fab-add:active { background: var(--green-deep); }
+@keyframes fabIn { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
+.fab-add:active { background: var(--green-deep); transform: scale(0.88); box-shadow: 0 3px 10px rgba(43, 38, 33, 0.3); }
 
 /* ---------- Members & Settlement（合併為單一分帳卡片） ---------- */
 .split-card { display: flex; flex-direction: column; gap: 8px; }
@@ -622,7 +655,7 @@ main#views {
 }
 .budget-over-text { color: var(--orange); }
 .budget-bar { height: 8px; border-radius: 999px; background: var(--green-mist); overflow: hidden; }
-.budget-bar__fill { height: 100%; border-radius: 999px; }
+.budget-bar__fill { height: 100%; border-radius: 999px; transform-origin: left; animation: fillBarScale 0.6s ease-out 0.1s both; }
 .budget-bar__fill.ok { background: var(--green); }
 .budget-bar__fill.warn { background: var(--gold); }
 .budget-bar__fill.over { background: var(--orange); }
@@ -661,9 +694,13 @@ main#views {
   color: var(--ink-soft);
   cursor: pointer;
   white-space: nowrap;
+  transition: color 0.15s ease;
 }
-.tabbar__btn .ico { font-size: 22px; }
+.tabbar__btn .ico { font-size: 22px; transition: transform 0.15s ease; }
+.tabbar__btn:active .ico { transform: scale(0.85); }
 .tabbar__btn.active { color: var(--green-deep); font-weight: 700; }
+.tabbar__btn.active .ico { animation: tabPop 0.3s ease; }
+@keyframes tabPop { 0% { transform: scale(1); } 40% { transform: scale(1.22); } 100% { transform: scale(1); } }
 
 /* ---------- Modal ---------- */
 .modal-root:empty { display: none; }
@@ -804,7 +841,14 @@ main#views {
 .full-day-header.is-open .full-day-chevron { transform: rotate(90deg); color: var(--green-deep); }
 .full-day-title { flex: 1 1 auto; min-width: 0; }
 .full-day-summary { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-soft); font-weight: 500; }
-.full-day-body { padding: 0 2px 14px; }
+.full-day-body {
+  padding: 0 2px 14px;
+  overflow: hidden;
+  max-height: 3000px;
+  opacity: 1;
+  transition: max-height 0.32s ease, opacity 0.25s ease, padding 0.3s ease;
+}
+.full-day-body.is-collapsed { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
 .weather-badge {
   font-family: var(--font-mono); font-size: 12px; font-weight: 700;
   background: var(--green-mist); color: var(--green-deep); padding: 2px 8px; border-radius: 999px;
@@ -829,8 +873,11 @@ main#views {
   cursor: pointer; margin-left: auto;
 }
 .stop-check input { width: 15px; height: 15px; accent-color: var(--green); }
-.road-stop.is-completed .stop-name { color: var(--ink-soft); text-decoration: line-through; }
+.road-stop.is-completed .stop-name { color: var(--ink-soft); text-decoration: line-through; transition: color 0.25s ease; }
+.road-stop .card { transition: background-color 0.3s ease; }
 .road-stop.is-completed .card { background: var(--green-mist); }
+.stop-check input { transition: transform 0.15s ease; }
+.stop-check input:active { transform: scale(1.3); }
 .journal-field { margin: 14px 0; }
 .journal-field textarea { min-height: 70px; }
 .journal-recap { margin-top: 10px; background: var(--orange-mist); border: none; }
